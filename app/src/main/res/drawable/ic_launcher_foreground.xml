@@ -4,36 +4,19 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Git branch icon -->
     <path
         android:fillColor="#FF58A6FF"
-        android:pathData="M54,24C37.4,24 24,37.4 24,54C24,70.6 37.4,84 54,84C70.6,84 84,70.6 84,54C84,37.4 70.6,24 54,24ZM54,79C40.2,79 29,67.8 29,54C29,40.2 40.2,29 54,29C67.8,29 79,40.2 79,54C79,67.8 67.8,79 54,79Z" />
+        android:pathData="M54,30C40.8,30 30,40.8 30,54C30,67.2 40.8,78 54,78C67.2,78 78,67.2 78,54C78,40.8 67.2,30 54,30ZM54,72C44.1,72 36,63.9 36,54C36,44.1 44.1,36 54,36C63.9,36 72,44.1 72,54C72,63.9 63.9,72 54,72Z" />
     <path
-        android:fillColor="#FF58A6FF"
-        android:pathData="M48,45V63M48,63L43,58M48,63L53,58"
+        android:pathData="M44,42L44,66M44,66L39,61M44,66L49,61"
         android:strokeWidth="3"
-        android:strokeColor="#FF58A6FF" />
-    <circle
-        android:cx="48"
-        android:cy="42"
-        android:r="3"
-        android:fillColor="#FF58A6FF" />
-    <circle
-        android:cx="48"
-        android:cy="66"
-        android:r="3"
-        android:fillColor="#FF58A6FF" />
-    <circle
-        android:cx="60"
-        android:cy="54"
-        android:r="3"
-        android:fillColor="#FF58A6FF" />
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
     <path
-        android:pathData="M48,42L60,54"
-        android:strokeWidth="2"
-        android:strokeColor="#FF58A6FF" />
-    <path
-        android:pathData="M48,66L60,54"
-        android:strokeWidth="2"
-        android:strokeColor="#FF58A6FF" />
+        android:pathData="M54,54L64,44M64,44L59,44M64,44L64,49"
+        android:strokeWidth="3"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>
