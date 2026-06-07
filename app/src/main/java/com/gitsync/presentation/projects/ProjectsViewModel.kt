@@ -2,6 +2,10 @@ package com.gitsync.presentation.projects
 
 import android.app.Application
 import android.net.Uri
+import android.os.Environment
+import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -144,7 +148,23 @@ class ProjectsViewModel @Inject constructor(
                     )
                 }
 
-                val localPath = s.selectedFolderUri?.toString() ?: ""
+                val uriString = s.selectedFolderUri?.toString() ?: ""
+                val localPath = if (s.selectedFolderUri != null) {
+                    try {
+                        val docId = DocumentsContract.getTreeDocumentId(s.selectedFolderUri)
+                        val parts = docId.split(":")
+                        val relative = parts.getOrElse(1) { "" }
+                        if (parts[0] == "primary") {
+                            "${Environment.getExternalStorageDirectory()}/$relative"
+                        } else {
+                            resolveSecondaryStoragePath(application, parts[0], relative)
+                        }
+                    } catch (_: Exception) {
+                        uriString
+                    }
+                } else {
+                    ""
+                }
 
                 val projectId = projectRepository.addProject(
                     name = s.projectName.trim(),
@@ -152,7 +172,7 @@ class ProjectsViewModel @Inject constructor(
                     repoOwner = s.repoOwner.trim(),
                     repoName = s.repoName.trim(),
                     branch = s.branch.trim(),
-                    uriPermission = localPath
+                    uriPermission = uriString
                 )
 
                 _state.value = _state.value.copy(
@@ -181,4 +201,24 @@ class ProjectsViewModel @Inject constructor(
     fun refresh() {
         loadProjects()
     }
+}
+
+private fun resolveSecondaryStoragePath(
+    application: Application,
+    volumeId: String,
+    relative: String
+): String {
+    val storageManager = application.getSystemService(StorageManager::class.java)
+    val volume = storageManager.storageVolumes.firstOrNull { it.uuid == volumeId }
+    if (volume != null) {
+        try {
+            val field = StorageVolume::class.java.getDeclaredField("mPath")
+            field.isAccessible = true
+            val mountPoint = field.get(volume) as String
+            return "$mountPoint/$relative"
+        } catch (_: Exception) {
+            // fall through
+        }
+    }
+    return "/storage/$volumeId/$relative"
 }
