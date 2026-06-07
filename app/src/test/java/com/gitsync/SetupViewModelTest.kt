@@ -113,6 +113,7 @@ class SetupViewModelTest {
         viewModel.onBranchChanged("main")
 
         viewModel.validateAndSave()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify { authRepository.saveCredentials("testuser", "ghp_valid_token_123", "main") }
     }
