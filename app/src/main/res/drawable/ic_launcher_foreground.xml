@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Git branch icon -->
+    <path
+        android:fillColor="#FF58A6FF"
+        android:pathData="M54,24C37.4,24 24,37.4 24,54C24,70.6 37.4,84 54,84C70.6,84 84,70.6 84,54C84,37.4 70.6,24 54,24ZM54,79C40.2,79 29,67.8 29,54C29,40.2 40.2,29 54,29C67.8,29 79,40.2 79,54C79,67.8 67.8,79 54,79Z" />
+    <path
+        android:fillColor="#FF58A6FF"
+        android:pathData="M48,45V63M48,63L43,58M48,63L53,58"
+        android:strokeWidth="3"
+        android:strokeColor="#FF58A6FF" />
+    <circle
+        android:cx="48"
+        android:cy="42"
+        android:r="3"
+        android:fillColor="#FF58A6FF" />
+    <circle
+        android:cx="48"
+        android:cy="66"
+        android:r="3"
+        android:fillColor="#FF58A6FF" />
+    <circle
+        android:cx="60"
+        android:cy="54"
+        android:r="3"
+        android:fillColor="#FF58A6FF" />
+    <path
+        android:pathData="M48,42L60,54"
+        android:strokeWidth="2"
+        android:strokeColor="#FF58A6FF" />
+    <path
+        android:pathData="M48,66L60,54"
+        android:strokeWidth="2"
+        android:strokeColor="#FF58A6FF" />
+</vector>

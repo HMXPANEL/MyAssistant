@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GitSync</string>
+    <string name="channel_sync">Sync Status</string>
+    <string name="channel_workflow">Workflow Updates</string>
+    <string name="channel_artifacts">Artifact Downloads</string>
+</resources>

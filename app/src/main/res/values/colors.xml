@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="seed">#FF58A6FF</color>
+    <color name="background_dark">#FF0D1117</color>
+    <color name="surface_dark">#FF161B22</color>
+    <color name="on_surface_dark">#FFC9D1D9</color>
+    <color name="primary_dark">#FF58A6FF</color>
+    <color name="success">#FF3FB950</color>
+    <color name="error">#FFF85149</color>
+    <color name="warning">#FFD29922</color>
+</resources>
