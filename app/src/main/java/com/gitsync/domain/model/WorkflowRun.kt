@@ -5,6 +5,7 @@ data class WorkflowRun(
     val workflowName: String,
     val headBranch: String,
     val status: WorkflowStatus,
+    val conclusion: WorkflowConclusion? = null,
     val createdAt: Long,
     val updatedAt: Long,
     val htmlUrl: String,

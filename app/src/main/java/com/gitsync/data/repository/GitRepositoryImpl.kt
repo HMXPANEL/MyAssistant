@@ -93,7 +93,7 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
                 git.push()
                     .setCredentialsProvider(credentials)
                     .setRemote("origin")
-                    .setRefSpecs("refs/heads/$branch:$refs/heads/$branch")
+                    .setRefSpecs("refs/heads/$branch:refs/heads/$branch")
                     .call()
             }
             Result.success(Unit)

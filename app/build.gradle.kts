@@ -56,7 +56,6 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1,LICENSE,LICENSE.md,LICENSE.txt,NOTICE,NOTICE.md,DEPENDENCIES}"
-            merges += "META-INF/kotlinx-serialization-core.kfm"
         }
     }
 }
@@ -133,7 +132,6 @@ dependencies {
     testImplementation("io.mockk:mockk:1.13.9")
     testImplementation("app.cash.turbine:turbine:1.0.0")
     testImplementation("androidx.arch.core:core-testing:2.2.0")
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
 
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
