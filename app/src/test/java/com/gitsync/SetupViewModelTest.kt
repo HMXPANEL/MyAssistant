@@ -3,7 +3,7 @@ package com.gitsync
 import com.gitsync.data.repository.AuthRepositoryImpl
 import com.gitsync.presentation.setup.SetupViewModel
 import io.mockk.mockk
-import io.mockk.verify
+import io.mockk.coVerify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -114,6 +114,6 @@ class SetupViewModelTest {
 
         viewModel.validateAndSave()
 
-        verify { authRepository.saveCredentials("testuser", "ghp_valid_token_123", "main") }
+        coVerify { authRepository.saveCredentials("testuser", "ghp_valid_token_123", "main") }
     }
 }
