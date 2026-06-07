@@ -3,9 +3,9 @@ package com.gitsync.worker
 import android.content.Context
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
+import androidx.work.WorkManager
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import com.gitsync.core.util.Constants
 import com.gitsync.domain.model.SyncInterval
 import java.util.concurrent.TimeUnit
@@ -28,7 +28,7 @@ object SyncScheduler {
 
         workManager.enqueueUniquePeriodicWork(
             Constants.SYNC_WORK_NAME,
-            ExistingPeriodicWorkPolicy.Keep,
+            ExistingPeriodicWorkPolicy.KEEP,
             workRequest
         )
     }
@@ -42,7 +42,7 @@ object SyncScheduler {
 
         workManager.enqueueUniqueWork(
             Constants.ARTIFACT_WORK_NAME,
-            ExistingWorkPolicy.Replace,
+            ExistingWorkPolicy.REPLACE,
             workRequest
         )
     }

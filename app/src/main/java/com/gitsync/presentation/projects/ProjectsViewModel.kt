@@ -47,12 +47,12 @@ class ProjectsViewModel @Inject constructor(
     private fun loadProjects() {
         viewModelScope.launch {
             projectRepository.getAllProjects().collect { projects ->
-                val updatedProjects = projects.map { project ->
-                    project.copy(
-                        syncStatus = gitRepository.getSyncStatus(project.localPath),
-                        modifiedFiles = gitRepository.getModifiedFiles(project.localPath)
-                            .getOrDefault(emptyList())
-                    )
+                val updatedProjects = mutableListOf<Project>()
+                for (project in projects) {
+                    val status = gitRepository.getSyncStatus(project.localPath)
+                    val files = gitRepository.getModifiedFiles(project.localPath)
+                        .getOrDefault(emptyList())
+                    updatedProjects.add(project.copy(syncStatus = status, modifiedFiles = files))
                 }
                 _state.value = _state.value.copy(
                     projects = updatedProjects,

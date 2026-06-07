@@ -116,6 +116,9 @@ dependencies {
     // DataStore (for non-sensitive preferences)
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
+    // DocumentFile (SAF helper)
+    implementation("androidx.documentfile:documentfile:1.0.1")
+
     // Splash Screen
     implementation("androidx.core:core-splashscreen:1.0.1")
 

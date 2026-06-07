@@ -18,6 +18,10 @@ fun Date.formatDisplay(): String {
     }
 }
 
+fun Long.formatDisplay(): String {
+    return Date(this).formatDisplay()
+}
+
 fun String.maskToken(): String {
     if (length <= 8) return "••••••••"
     return "${take(4)}••••${takeLast(4)}"

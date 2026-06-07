@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.runtime.collectAsState
 import com.gitsync.core.ui.components.ConfirmDialog
 import com.gitsync.domain.model.SyncInterval
 
@@ -51,7 +52,7 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state
+    val state by viewModel.state.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showSyncIntervalMenu by remember { mutableStateOf(false) }
 

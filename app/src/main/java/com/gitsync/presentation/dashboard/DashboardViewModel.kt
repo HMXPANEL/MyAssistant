@@ -54,7 +54,7 @@ class DashboardViewModel @Inject constructor(
                 var pending = 0
                 var error = 0
 
-                projects.forEach { project ->
+                for (project in projects) {
                     val status = gitRepository.getSyncStatus(project.localPath)
                     when (status) {
                         SyncStatus.SYNCED -> synced++

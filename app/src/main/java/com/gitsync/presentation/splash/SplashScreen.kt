@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.runtime.collectAsState
 import com.gitsync.core.ui.theme.GithubBlue
 
 @Composable
@@ -32,7 +33,7 @@ fun SplashScreen(
     onNavigateToDashboard: () -> Unit,
     viewModel: SplashViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state
+    val state by viewModel.state.collectAsState()
 
     LaunchedEffect(state) {
         if (!state.isLoading) {

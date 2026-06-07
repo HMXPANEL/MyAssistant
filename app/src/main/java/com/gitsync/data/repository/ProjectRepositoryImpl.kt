@@ -53,6 +53,7 @@ class ProjectRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateProject(project: Project) {
+        val existing = projectDao.getProjectById(project.id)
         val entity = ProjectEntity(
             id = project.id,
             name = project.name,
@@ -60,6 +61,7 @@ class ProjectRepositoryImpl @Inject constructor(
             repoOwner = project.repoOwner,
             repoName = project.repoName,
             branch = project.branch,
+            uriPermission = existing?.uriPermission ?: "",
             lastSyncTime = project.lastSyncTime,
             lastCommitHash = project.lastCommitHash,
             lastCommitMessage = project.lastCommitMessage

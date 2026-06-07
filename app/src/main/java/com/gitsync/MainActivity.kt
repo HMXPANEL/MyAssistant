@@ -15,6 +15,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
 import com.gitsync.core.ui.theme.GitSyncTheme
+import com.gitsync.presentation.splash.SplashState
 import com.gitsync.domain.model.SyncInterval
 import com.gitsync.domain.repository.SettingsRepository
 import com.gitsync.presentation.navigation.NavGraph
@@ -46,7 +47,9 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     val splashViewModel: SplashViewModel = hiltViewModel()
-                    val splashState by splashViewModel.state.collectAsStateWithLifecycle()
+                    val splashState by splashViewModel.state.collectAsStateWithLifecycle(
+                        initialValue = SplashState()
+                    )
 
                     val startDestination = if (splashState.isSetupComplete) {
                         "dashboard"

@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.runtime.collectAsState
 import com.gitsync.core.ui.components.ErrorDialog
 
 @Composable
@@ -35,7 +36,7 @@ fun SetupScreen(
     onSetupComplete: () -> Unit,
     viewModel: SetupViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state
+    val state by viewModel.state.collectAsState()
     var tokenVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.isSuccess) {

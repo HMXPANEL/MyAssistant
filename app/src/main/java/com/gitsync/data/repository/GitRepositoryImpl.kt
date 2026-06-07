@@ -6,6 +6,7 @@ import com.gitsync.domain.repository.GitRepository
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.Status
 import org.eclipse.jgit.lib.RepositoryBuilder
+import org.eclipse.jgit.transport.RefSpec
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import java.io.File
 import javax.inject.Inject
@@ -93,7 +94,7 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
                 git.push()
                     .setCredentialsProvider(credentials)
                     .setRemote("origin")
-                    .setRefSpecs("refs/heads/$branch:refs/heads/$branch")
+                    .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
                     .call()
             }
             Result.success(Unit)
@@ -201,7 +202,7 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
             Git.open(repoDir).use { git ->
                 val remoteConfig = git.remoteList().call()
                 val origin = remoteConfig.find { it.name == "origin" }
-                val url = origin?.uris?.firstOrNull()?.toString() ?: ""
+                val url = origin?.getURIs()?.firstOrNull()?.toString() ?: ""
                 Result.success(url)
             }
         } catch (e: Exception) {
