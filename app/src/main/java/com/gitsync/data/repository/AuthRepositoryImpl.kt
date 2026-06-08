@@ -14,12 +14,25 @@ class AuthRepositoryImpl @Inject constructor(
 
     override suspend fun validateCredentials(username: String, token: String): Result<Boolean> {
         return try {
-            val user = gitHubApi.getUser()
-            if (user.login.equals(username, ignoreCase = true)) {
-                Result.success(true)
-            } else {
-                Result.failure(Exception("Username does not match token owner"))
+            // Temporarily write the token so AuthInterceptor can attach it
+            // to the validation request. Roll it back on failure.
+            val previousToken = secureStorage.githubToken
+            secureStorage.githubToken = token
+            val result = try {
+                val user = gitHubApi.getUser()
+                if (user.login.equals(username, ignoreCase = true)) {
+                    Result.success(true)
+                } else {
+                    Result.failure(Exception("Username does not match token owner. Expected: $username, got: ${user.login}"))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+            // If validation failed, restore the old token (or clear it)
+            if (result.isFailure) {
+                secureStorage.githubToken = previousToken
+            }
+            result
         } catch (e: Exception) {
             Result.failure(e)
         }
