@@ -56,7 +56,16 @@ class ProjectDetailViewModel @Inject constructor(
 
             projectRepository.getProjectById(projectId).collect { project ->
                 if (project != null) {
-                    val isRepo = gitRepository.isGitRepository(project.localPath)
+                    val projectDir = java.io.File(project.localPath)
+                    val hasReadPermission = projectDir.canRead()
+                    val isRepo = if (!hasReadPermission) false
+                                 else gitRepository.isGitRepository(project.localPath)
+
+                    // Store permission error to show correct message in UI
+                    val permissionError = if (!hasReadPermission)
+                        "Storage permission denied. Grant 'All Files Access' in Settings > Apps > GitSync > Permissions."
+                    else null
+
                     val currentBranch = if (isRepo) {
                         gitRepository.getCurrentBranch(project.localPath)
                             .getOrDefault("")
@@ -81,7 +90,8 @@ class ProjectDetailViewModel @Inject constructor(
                         detectedBranch = currentBranch,
                         isGitRepo = isRepo,
                         modifiedFiles = files,
-                        isLoading = false
+                        isLoading = false,
+                        error = permissionError
                     )
                 } else {
                     _state.value = _state.value.copy(isLoading = false, error = "Project not found")

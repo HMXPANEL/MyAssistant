@@ -165,7 +165,10 @@ fun ProjectDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    "This folder is not a Git repository",
+                                    if (state.error?.contains("permission", ignoreCase = true) == true)
+                                        "Storage permission denied. Go to Settings > Apps > GitSync > Permissions > Files and media > Allow all"
+                                    else
+                                        "This folder is not a Git repository",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.error
                                 )

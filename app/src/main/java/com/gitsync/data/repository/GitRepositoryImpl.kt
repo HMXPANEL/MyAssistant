@@ -28,7 +28,13 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
             if (!repoDir.isDirectory) return false
             val gitDir = File(repoDir, ".git")
             if (!gitDir.exists()) return false
+            // Check read permission explicitly before JGit tries
+            if (!repoDir.canRead()) return false
             Git.open(repoDir).use { true }
+        } catch (e: SecurityException) {
+            false
+        } catch (e: java.io.IOException) {
+            false
         } catch (_: Exception) {
             false
         }
