@@ -33,4 +33,11 @@ interface GitRepository {
     suspend fun getOriginUrl(projectPath: String): Result<String>
     suspend fun setOriginUrl(projectPath: String, url: String): Result<Unit>
     suspend fun getRemoteUrl(projectPath: String): Result<String>
+    suspend fun setupAndPushProject(
+        projectPath: String,
+        remoteUrl: String,
+        username: String,
+        token: String,
+        branch: String
+    ): Result<String>
 }

@@ -11,6 +11,7 @@ import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.lib.RepositoryCache
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.eclipse.jgit.transport.RefSpec
+import org.eclipse.jgit.transport.URIish
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import org.eclipse.jgit.util.FS
 import java.io.File
@@ -352,5 +353,72 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
 
     override suspend fun getRemoteUrl(projectPath: String): Result<String> {
         return getOriginUrl(projectPath)
+    }
+
+    override suspend fun setupAndPushProject(
+        projectPath: String,
+        remoteUrl: String,
+        username: String,
+        token: String,
+        branch: String
+    ): Result<String> {
+        return try {
+            val repoDir = File(projectPath)
+            if (!repoDir.exists()) repoDir.mkdirs()
+
+            val isAlreadyRepo = try {
+                val gitDir = File(repoDir, ".git")
+                gitDir.exists() && Git.open(repoDir) != null
+            } catch (_: Exception) { false }
+
+            val git = if (isAlreadyRepo) {
+                Git.open(repoDir)
+            } else {
+                Git.init().setDirectory(repoDir).call()
+            }
+
+            git.use { g ->
+                val remotes = g.remoteList().call()
+                val hasOrigin = remotes.any { it.name == "origin" }
+                if (hasOrigin) {
+                    g.remoteSetUrl()
+                        .setRemoteName("origin")
+                        .setRemoteUri(URIish(remoteUrl))
+                        .call()
+                } else {
+                    g.remoteAdd()
+                        .setName("origin")
+                        .setUri(URIish(remoteUrl))
+                        .call()
+                }
+
+                g.add().addFilepattern(".").call()
+
+                val status = g.status().call()
+                val commitHash = if (!status.isClean) {
+                    val commit = g.commit()
+                        .setMessage("Initial commit from GitSync")
+                        .setAuthor("GitSync", "gitsync@local.dev")
+                        .call()
+                    commit.name
+                } else {
+                    try {
+                        val log = g.log().setMaxCount(1).call().iterator()
+                        if (log.hasNext()) log.next().name else "no-commits"
+                    } catch (_: Exception) { "no-commits" }
+                }
+
+                val credentials = UsernamePasswordCredentialsProvider(username, token)
+                g.push()
+                    .setCredentialsProvider(credentials)
+                    .setRemote("origin")
+                    .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
+                    .call()
+
+                Result.success(commitHash)
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Setup failed: ${e.message}"))
+        }
     }
 }

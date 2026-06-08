@@ -152,7 +152,7 @@ fun ProjectsScreen(
             onRepoOwnerChanged = viewModel::onRepoOwnerChanged,
             onRepoNameChanged = viewModel::onRepoNameChanged,
             onBranchChanged = viewModel::onBranchChanged,
-            onConfirm = viewModel::addProject,
+            onConfirm = viewModel::addAndSetupProject,
             onDismiss = viewModel::hideAddDialog
         )
     }
@@ -326,12 +326,22 @@ private fun AddProjectDialog(
                 enabled = !state.isAdding
             ) {
                 if (state.isAdding) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.height(16.dp),
-                        strokeWidth = 2.dp
-                    )
+                    Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        if (state.setupStep.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                state.setupStep,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 } else {
-                    Text("Add")
+                    Text("Add & Push")
                 }
             }
         },

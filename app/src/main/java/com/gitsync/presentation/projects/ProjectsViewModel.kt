@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gitsync.core.util.SafUriHelper
 import com.gitsync.domain.model.Project
+import com.gitsync.domain.model.SyncStatus
 import com.gitsync.domain.repository.AuthRepository
 import com.gitsync.domain.repository.GitRepository
 import com.gitsync.domain.repository.ProjectRepository
@@ -27,7 +28,8 @@ data class ProjectsState(
     val projectName: String = "",
     val branch: String = "main",
     val isAdding: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val setupStep: String = ""
 )
 
 @HiltViewModel
@@ -50,7 +52,12 @@ class ProjectsViewModel @Inject constructor(
             projectRepository.getAllProjects().collect { projects ->
                 val updatedProjects = mutableListOf<Project>()
                 for (project in projects) {
-                    val status = gitRepository.getSyncStatus(project.localPath)
+                    val projectDir = java.io.File(project.localPath)
+                    val status = if (!projectDir.exists() || !projectDir.canRead()) {
+                        SyncStatus.ERROR
+                    } else {
+                        gitRepository.getSyncStatus(project.localPath)
+                    }
                     val files = gitRepository.getModifiedFiles(project.localPath)
                         .getOrDefault(emptyList())
                     updatedProjects.add(project.copy(syncStatus = status, modifiedFiles = files))
@@ -174,6 +181,99 @@ class ProjectsViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     isAdding = false,
                     error = e.message ?: "Failed to add project"
+                )
+            }
+        }
+    }
+
+    fun addAndSetupProject() {
+        val s = _state.value
+
+        if (s.projectName.isBlank()) {
+            _state.value = s.copy(error = "Project name is required")
+            return
+        }
+        if (s.repoOwner.isBlank()) {
+            _state.value = s.copy(error = "Repository owner is required")
+            return
+        }
+        if (s.repoName.isBlank()) {
+            _state.value = s.copy(error = "Repository name is required")
+            return
+        }
+        if (s.selectedFolderUri == null) {
+            _state.value = s.copy(error = "Please select a folder")
+            return
+        }
+
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isAdding = true, error = null, setupStep = "Validating folder...")
+
+            try {
+                if (!SafUriHelper.isValidDirectory(application, s.selectedFolderUri)) {
+                    _state.value = _state.value.copy(isAdding = false, error = "Selected folder is not valid or accessible")
+                    return@launch
+                }
+
+                SafUriHelper.takePersistablePermissions(application, s.selectedFolderUri)
+
+                val localPath = SafUriHelper.resolveLocalPath(application, s.selectedFolderUri)
+                    ?: s.selectedFolderUri.toString()
+
+                val username = authRepository.getUsername()
+                val token = authRepository.getToken()
+                val branch = s.branch.ifBlank { "main" }
+
+                _state.value = _state.value.copy(setupStep = "Initializing local repository...")
+
+                val repoUrl = "https://github.com/${s.repoOwner.trim()}/${s.repoName.trim()}.git"
+
+                val setupResult = gitRepository.setupAndPushProject(
+                    projectPath = localPath,
+                    remoteUrl = repoUrl,
+                    username = username,
+                    token = token,
+                    branch = branch
+                )
+
+                if (setupResult.isFailure) {
+                    _state.value = _state.value.copy(
+                        isAdding = false,
+                        setupStep = "",
+                        error = setupResult.exceptionOrNull()?.message ?: "Setup failed"
+                    )
+                    return@launch
+                }
+
+                val commitHash = setupResult.getOrDefault("")
+
+                _state.value = _state.value.copy(setupStep = "Saving project...")
+
+                projectRepository.addProject(
+                    name = s.projectName.trim(),
+                    localPath = localPath,
+                    safUri = s.selectedFolderUri.toString(),
+                    repoOwner = s.repoOwner.trim(),
+                    repoName = s.repoName.trim(),
+                    branch = branch,
+                    uriPermission = s.selectedFolderUri.toString()
+                )
+
+                _state.value = _state.value.copy(
+                    isAdding = false,
+                    setupStep = "",
+                    showAddDialog = false,
+                    selectedFolderUri = null,
+                    projectName = "",
+                    repoName = "",
+                    error = null
+                )
+
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    isAdding = false,
+                    setupStep = "",
+                    error = e.message ?: "Unexpected error during setup"
                 )
             }
         }

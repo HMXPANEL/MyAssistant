@@ -1,12 +1,17 @@
 package com.gitsync.core.network
 
 import com.gitsync.data.remote.dto.ArtifactDto
+import com.gitsync.data.remote.dto.CreateRepoRequestDto
 import com.gitsync.data.remote.dto.GitHubUserDto
 import com.gitsync.data.remote.dto.RepoDto
 import com.gitsync.data.remote.dto.WorkflowRunDto
 import com.gitsync.data.remote.dto.WorkflowRunsResponse
 import com.gitsync.data.remote.dto.ArtifactsResponse
+import retrofit2.Response
+import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Headers
+import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -56,4 +61,16 @@ interface GitHubApi {
         @Path("repo") repo: String,
         @Path("artifactId") artifactId: Long
     ): okhttp3.ResponseBody
+
+    @POST("user/repos")
+    @Headers("Accept: application/vnd.github+json")
+    suspend fun createRepository(
+        @Body request: CreateRepoRequestDto
+    ): RepoDto
+
+    @GET("repos/{owner}/{repo}")
+    suspend fun checkRepositoryExists(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String
+    ): Response<RepoDto>
 }
