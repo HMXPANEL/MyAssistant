@@ -326,7 +326,6 @@ fun SettingsScreen(
                     }
                 }
             }
-        }
     }
 
     if (showLogoutDialog) {
