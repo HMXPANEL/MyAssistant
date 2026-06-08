@@ -134,9 +134,21 @@ set -- \
         org.gradle.wrapper.GradleWrapperMain \
         "$@"
 
-# Stop when "xeli" is not available.
-if ! "$cygwin" && ! "$msys" ; then
-    exec "$JAVACMD" "$@"
-fi
-
-exec "$JAVACMD" "$@"
+# Retry wrapper for Gradle distribution download failures
+max_retries=5
+retry_delay=15
+n=0
+while true; do
+    if "$cygwin" || "$msys" ; then
+        "$JAVACMD" "$@" && break
+    else
+        exec "$JAVACMD" "$@" && break
+    fi
+    rc=$?
+    n=$((n + 1))
+    if [ $n -ge $max_retries ]; then
+        exit $rc
+    fi
+    warn "Gradle execution failed (attempt $n/$max_retries), retrying in ${retry_delay}s..."
+    sleep $retry_delay
+done
