@@ -6,7 +6,6 @@ import com.gitsync.domain.repository.GitRepository
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.Status
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
-import org.eclipse.jgit.errors.NotAuthorizedException
 import org.eclipse.jgit.errors.TransportException
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.lib.RepositoryCache
@@ -156,8 +155,6 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
                     .call()
             }
             Result.success(Unit)
-        } catch (e: NotAuthorizedException) {
-            Result.failure(Exception("Authentication failed. Check your GitHub token."))
         } catch (e: NoRemoteRepositoryException) {
             Result.failure(Exception("Remote repository not found. Check owner/repo name."))
         } catch (e: TransportException) {
@@ -200,8 +197,6 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
                     .call()
             }
             Result.success(Unit)
-        } catch (e: NotAuthorizedException) {
-            Result.failure(Exception("Authentication failed. Check your GitHub token."))
         } catch (e: NoRemoteRepositoryException) {
             Result.failure(Exception("Remote repository not found. Check owner/repo name."))
         } catch (e: TransportException) {

@@ -61,7 +61,7 @@ class DevDiagnosticsViewModel @Inject constructor(
             // Storage volumes
             val storageManager = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
             storageManager?.storageVolumes?.forEachIndexed { i, vol ->
-                entries.add("Storage Volume $i" to "${vol.description} (${vol.uuid ?: "no-uuid"})")
+                entries.add("Storage Volume $i" to "${vol.getDescription(context) ?: "unknown"} (${vol.uuid ?: "no-uuid"})")
             }
 
             // Projects
