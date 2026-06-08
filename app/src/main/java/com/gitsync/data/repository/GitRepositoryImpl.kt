@@ -3,6 +3,8 @@ package com.gitsync.data.repository
 import com.gitsync.domain.model.GitCommit
 import com.gitsync.domain.model.SyncStatus
 import com.gitsync.domain.repository.GitRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.Status
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
@@ -151,40 +153,43 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
         token: String,
         branch: String
     ): Result<Unit> {
-        return try {
-            val repoDir = File(projectPath)
-            Git.open(repoDir).use { git ->
-                val credentials = UsernamePasswordCredentialsProvider(username, token)
-                git.push()
-                    .setCredentialsProvider(credentials)
-                    .setRemote("origin")
-                    .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
-                    .call()
+        return withContext(Dispatchers.IO) {
+            try {
+                val repoDir = File(projectPath)
+                Git.open(repoDir).use { git ->
+                    val credentials = UsernamePasswordCredentialsProvider(username, token)
+                    git.push()
+                        .setCredentialsProvider(credentials)
+                        .setRemote("origin")
+                        .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
+                        .setTimeout(60_000)
+                        .call()
+                }
+                Result.success(Unit)
+            } catch (e: NoRemoteRepositoryException) {
+                Result.failure(Exception("Remote repository not found. Check owner/repo name."))
+            } catch (e: TransportException) {
+                val msg = e.message ?: ""
+                when {
+                    msg.contains("not authorized", ignoreCase = true) ||
+                    msg.contains("401", ignoreCase = true) ->
+                        Result.failure(Exception("Authentication failed. Check your GitHub token."))
+                    msg.contains("not found", ignoreCase = true) ||
+                    msg.contains("404", ignoreCase = true) ->
+                        Result.failure(Exception("Remote repository not found. Check owner/repo name."))
+                    msg.contains("timeout", ignoreCase = true) ||
+                    msg.contains("timed out", ignoreCase = true) ->
+                        Result.failure(Exception("Connection timed out. Check your internet connection."))
+                    else ->
+                        Result.failure(Exception("Push failed: ${e.message}"))
+                }
+            } catch (e: UnknownHostException) {
+                Result.failure(Exception("No internet connection. Check your network."))
+            } catch (e: ConnectException) {
+                Result.failure(Exception("Cannot connect to GitHub. Check your internet connection."))
+            } catch (e: Exception) {
+                Result.failure(Exception("Push failed: ${e.message}"))
             }
-            Result.success(Unit)
-        } catch (e: NoRemoteRepositoryException) {
-            Result.failure(Exception("Remote repository not found. Check owner/repo name."))
-        } catch (e: TransportException) {
-            val msg = e.message ?: ""
-            when {
-                msg.contains("not authorized", ignoreCase = true) ||
-                msg.contains("401", ignoreCase = true) ->
-                    Result.failure(Exception("Authentication failed. Check your GitHub token."))
-                msg.contains("not found", ignoreCase = true) ||
-                msg.contains("404", ignoreCase = true) ->
-                    Result.failure(Exception("Remote repository not found. Check owner/repo name."))
-                msg.contains("timeout", ignoreCase = true) ||
-                msg.contains("timed out", ignoreCase = true) ->
-                    Result.failure(Exception("Connection timed out. Check your internet connection."))
-                else ->
-                    Result.failure(Exception("Push failed: ${e.message}"))
-            }
-        } catch (e: UnknownHostException) {
-            Result.failure(Exception("No internet connection. Check your network."))
-        } catch (e: ConnectException) {
-            Result.failure(Exception("Cannot connect to GitHub. Check your internet connection."))
-        } catch (e: Exception) {
-            Result.failure(Exception("Push failed: ${e.message}"))
         }
     }
 
@@ -194,38 +199,41 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
         token: String,
         branch: String
     ): Result<Unit> {
-        return try {
-            val repoDir = File(projectPath)
-            Git.open(repoDir).use { git ->
-                val credentials = UsernamePasswordCredentialsProvider(username, token)
-                git.pull()
-                    .setCredentialsProvider(credentials)
-                    .setRemoteBranchName(branch)
-                    .call()
+        return withContext(Dispatchers.IO) {
+            try {
+                val repoDir = File(projectPath)
+                Git.open(repoDir).use { git ->
+                    val credentials = UsernamePasswordCredentialsProvider(username, token)
+                    git.pull()
+                        .setCredentialsProvider(credentials)
+                        .setRemoteBranchName(branch)
+                        .setTimeout(60_000)
+                        .call()
+                }
+                Result.success(Unit)
+            } catch (e: NoRemoteRepositoryException) {
+                Result.failure(Exception("Remote repository not found. Check owner/repo name."))
+            } catch (e: TransportException) {
+                val msg = e.message ?: ""
+                when {
+                    msg.contains("not authorized", ignoreCase = true) ||
+                    msg.contains("401", ignoreCase = true) ->
+                        Result.failure(Exception("Authentication failed. Check your GitHub token."))
+                    msg.contains("not found", ignoreCase = true) ||
+                    msg.contains("404", ignoreCase = true) ->
+                        Result.failure(Exception("Remote repository not found. Check owner/repo name."))
+                    msg.contains("timeout", ignoreCase = true) ->
+                        Result.failure(Exception("Connection timed out. Check your internet connection."))
+                    else ->
+                        Result.failure(Exception("Pull failed: ${e.message}"))
+                }
+            } catch (e: UnknownHostException) {
+                Result.failure(Exception("No internet connection. Check your network."))
+            } catch (e: ConnectException) {
+                Result.failure(Exception("Cannot connect to GitHub. Check your internet connection."))
+            } catch (e: Exception) {
+                Result.failure(Exception("Pull failed: ${e.message}"))
             }
-            Result.success(Unit)
-        } catch (e: NoRemoteRepositoryException) {
-            Result.failure(Exception("Remote repository not found. Check owner/repo name."))
-        } catch (e: TransportException) {
-            val msg = e.message ?: ""
-            when {
-                msg.contains("not authorized", ignoreCase = true) ||
-                msg.contains("401", ignoreCase = true) ->
-                    Result.failure(Exception("Authentication failed. Check your GitHub token."))
-                msg.contains("not found", ignoreCase = true) ||
-                msg.contains("404", ignoreCase = true) ->
-                    Result.failure(Exception("Remote repository not found. Check owner/repo name."))
-                msg.contains("timeout", ignoreCase = true) ->
-                    Result.failure(Exception("Connection timed out. Check your internet connection."))
-                else ->
-                    Result.failure(Exception("Pull failed: ${e.message}"))
-            }
-        } catch (e: UnknownHostException) {
-            Result.failure(Exception("No internet connection. Check your network."))
-        } catch (e: ConnectException) {
-            Result.failure(Exception("Cannot connect to GitHub. Check your internet connection."))
-        } catch (e: Exception) {
-            Result.failure(Exception("Pull failed: ${e.message}"))
         }
     }
 
@@ -362,63 +370,66 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
         token: String,
         branch: String
     ): Result<String> {
-        return try {
-            val repoDir = File(projectPath)
-            if (!repoDir.exists()) repoDir.mkdirs()
+        return withContext(Dispatchers.IO) {
+            try {
+                val repoDir = File(projectPath)
+                if (!repoDir.exists()) repoDir.mkdirs()
 
-            val isAlreadyRepo = try {
-                val gitDir = File(repoDir, ".git")
-                gitDir.exists() && Git.open(repoDir) != null
-            } catch (_: Exception) { false }
+                val isAlreadyRepo = try {
+                    val gitDir = File(repoDir, ".git")
+                    gitDir.exists() && Git.open(repoDir) != null
+                } catch (_: Exception) { false }
 
-            val git = if (isAlreadyRepo) {
-                Git.open(repoDir)
-            } else {
-                Git.init().setDirectory(repoDir).call()
-            }
-
-            git.use { g ->
-                val remotes = g.remoteList().call()
-                val hasOrigin = remotes.any { it.name == "origin" }
-                if (hasOrigin) {
-                    g.remoteSetUrl()
-                        .setRemoteName("origin")
-                        .setRemoteUri(URIish(remoteUrl))
-                        .call()
+                val git = if (isAlreadyRepo) {
+                    Git.open(repoDir)
                 } else {
-                    g.remoteAdd()
-                        .setName("origin")
-                        .setUri(URIish(remoteUrl))
-                        .call()
+                    Git.init().setDirectory(repoDir).call()
                 }
 
-                g.add().addFilepattern(".").call()
+                git.use { g ->
+                    val remotes = g.remoteList().call()
+                    val hasOrigin = remotes.any { it.name == "origin" }
+                    if (hasOrigin) {
+                        g.remoteSetUrl()
+                            .setRemoteName("origin")
+                            .setRemoteUri(URIish(remoteUrl))
+                            .call()
+                    } else {
+                        g.remoteAdd()
+                            .setName("origin")
+                            .setUri(URIish(remoteUrl))
+                            .call()
+                    }
 
-                val status = g.status().call()
-                val commitHash = if (!status.isClean) {
-                    val commit = g.commit()
-                        .setMessage("Initial commit from GitSync")
-                        .setAuthor("GitSync", "gitsync@local.dev")
+                    g.add().addFilepattern(".").call()
+
+                    val status = g.status().call()
+                    val commitHash = if (!status.isClean) {
+                        val commit = g.commit()
+                            .setMessage("Initial commit from GitSync")
+                            .setAuthor("GitSync", "gitsync@local.dev")
+                            .call()
+                        commit.name
+                    } else {
+                        try {
+                            val log = g.log().setMaxCount(1).call().iterator()
+                            if (log.hasNext()) log.next().name else "no-commits"
+                        } catch (_: Exception) { "no-commits" }
+                    }
+
+                    val credentials = UsernamePasswordCredentialsProvider(username, token)
+                    g.push()
+                        .setCredentialsProvider(credentials)
+                        .setRemote("origin")
+                        .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
+                        .setTimeout(60_000)
                         .call()
-                    commit.name
-                } else {
-                    try {
-                        val log = g.log().setMaxCount(1).call().iterator()
-                        if (log.hasNext()) log.next().name else "no-commits"
-                    } catch (_: Exception) { "no-commits" }
+
+                    Result.success(commitHash)
                 }
-
-                val credentials = UsernamePasswordCredentialsProvider(username, token)
-                g.push()
-                    .setCredentialsProvider(credentials)
-                    .setRemote("origin")
-                    .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
-                    .call()
-
-                Result.success(commitHash)
+            } catch (e: Exception) {
+                Result.failure(Exception("Setup failed: ${e.message}"))
             }
-        } catch (e: Exception) {
-            Result.failure(Exception("Setup failed: ${e.message}"))
         }
     }
 }
