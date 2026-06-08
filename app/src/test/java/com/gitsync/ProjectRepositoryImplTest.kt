@@ -30,8 +30,8 @@ class ProjectRepositoryImplTest {
     @Test
     fun `getAllProjects returns mapped projects`() = runTest {
         val entities = listOf(
-            ProjectEntity(1, "Project1", "/path1", "owner1", "repo1", "main"),
-            ProjectEntity(2, "Project2", "/path2", "owner2", "repo2", "dev")
+            ProjectEntity(1, "Project1", "/path1", "", "owner1", "repo1", "main"),
+            ProjectEntity(2, "Project2", "/path2", "", "owner2", "repo2", "dev")
         )
 
         coEvery { projectDao.getAllProjects() } returns flowOf(entities)
@@ -51,6 +51,7 @@ class ProjectRepositoryImplTest {
             id = 1,
             name = "TestProject",
             localPath = "/test",
+            safUri = "content://test",
             repoOwner = "owner",
             repoName = "repo",
             branch = "main",
@@ -67,6 +68,7 @@ class ProjectRepositoryImplTest {
         assertEquals("TestProject", project?.name)
         assertEquals("abc123", project?.lastCommitHash)
         assertEquals("Initial commit", project?.lastCommitMessage)
+        assertEquals("content://test", project?.safUri)
     }
 
     @Test
@@ -76,6 +78,7 @@ class ProjectRepositoryImplTest {
         val id = repository.addProject(
             name = "NewProject",
             localPath = "/new/path",
+            safUri = "content://new",
             repoOwner = "owner",
             repoName = "new-repo",
             branch = "main",
@@ -95,10 +98,16 @@ class ProjectRepositoryImplTest {
 
     @Test
     fun `updateProject maps domain to entity correctly`() = runTest {
+        coEvery { projectDao.getProjectById(1) } returns ProjectEntity(
+            id = 1, name = "Old", localPath = "/old",
+            safUri = "content://old", repoOwner = "owner", repoName = "repo"
+        )
+
         val project = Project(
             id = 1,
             name = "UpdatedProject",
             localPath = "/updated",
+            safUri = "",
             repoOwner = "owner",
             repoName = "repo",
             branch = "dev",
@@ -115,6 +124,7 @@ class ProjectRepositoryImplTest {
                     assertTrue(entity.id == 1L)
                     assertTrue(entity.name == "UpdatedProject")
                     assertTrue(entity.lastCommitHash == "def456")
+                    assertTrue(entity.safUri == "content://old")
                 }
             )
         }

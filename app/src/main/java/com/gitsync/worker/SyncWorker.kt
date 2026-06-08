@@ -23,6 +23,8 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
 import java.io.File
+import java.net.ConnectException
+import java.net.UnknownHostException
 
 @HiltWorker
 class SyncWorker @AssistedInject constructor(
@@ -37,6 +39,8 @@ class SyncWorker @AssistedInject constructor(
         val projectList = projectRepository.getAllProjects().first()
         var successCount = 0
         var failCount = 0
+        var hasRetryableFailure = false
+        var hasPermanentFailure = false
 
         if (projectList.isEmpty()) return Result.success()
 
@@ -48,14 +52,26 @@ class SyncWorker @AssistedInject constructor(
         for (project in projectList) {
             try {
                 val repoDir = File(project.localPath)
-                if (!repoDir.exists()) continue
+                if (!repoDir.exists()) {
+                    hasPermanentFailure = true
+                    continue
+                }
 
                 if (!gitRepository.isGitRepository(project.localPath)) {
-                    gitRepository.initRepository(project.localPath)
+                    hasPermanentFailure = true
+                    continue
                 }
 
                 val status = gitRepository.getSyncStatus(project.localPath)
                 if (status == SyncStatus.SYNCED) {
+                    successCount++
+                    continue
+                }
+
+                val hasChanges = gitRepository.hasChanges(project.localPath)
+                    .getOrDefault(false)
+
+                if (!hasChanges) {
                     successCount++
                     continue
                 }
@@ -66,18 +82,22 @@ class SyncWorker @AssistedInject constructor(
                     "Auto-sync from GitSync [${System.currentTimeMillis()}]"
                 ).getOrThrow()
 
+                val currentBranch = gitRepository.getCurrentBranch(project.localPath)
+                    .getOrDefault(project.branch)
+
                 gitRepository.push(
                     project.localPath,
                     username,
                     token,
-                    project.branch
+                    currentBranch
                 ).getOrThrow()
 
                 projectRepository.updateProject(
                     project.copy(
                         lastSyncTime = System.currentTimeMillis(),
                         lastCommitHash = hash.take(7),
-                        lastCommitMessage = "Auto-sync from GitSync"
+                        lastCommitMessage = "Auto-sync from GitSync",
+                        branch = currentBranch
                     )
                 )
 
@@ -85,23 +105,45 @@ class SyncWorker @AssistedInject constructor(
 
                 showPushNotification(
                     project.name,
-                    "Successfully pushed to ${project.branch}"
+                    "Successfully pushed to $currentBranch"
                 )
             } catch (e: Exception) {
                 failCount++
-
-                showPushNotification(
-                    project.name,
-                    "Sync failed: ${e.message?.take(100) ?: "Unknown error"}",
-                    isError = true
-                )
+                when (e) {
+                    is UnknownHostException, is ConnectException -> {
+                        hasRetryableFailure = true
+                    }
+                    else -> {
+                        val msg = e.message ?: ""
+                        if (msg.contains("timeout", ignoreCase = true) ||
+                            msg.contains("timed out", ignoreCase = true)
+                        ) {
+                            hasRetryableFailure = true
+                        } else {
+                            hasPermanentFailure = true
+                            showPushNotification(
+                                project.name,
+                                "Sync failed: ${e.message?.take(100) ?: "Unknown error"}",
+                                isError = true
+                            )
+                        }
+                    }
+                }
             }
         }
 
-        return if (failCount == 0) Result.success() else Result.retry()
+        return when {
+            hasRetryableFailure -> Result.retry()
+            hasPermanentFailure && successCount == 0 -> Result.failure()
+            else -> Result.success()
+        }
     }
 
-    private fun showPushNotification(projectName: String, message: String, isError: Boolean = false) {
+    private fun showPushNotification(
+        projectName: String,
+        message: String,
+        isError: Boolean = false
+    ) {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }

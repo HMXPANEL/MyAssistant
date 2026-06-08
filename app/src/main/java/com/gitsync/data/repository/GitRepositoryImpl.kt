@@ -5,10 +5,18 @@ import com.gitsync.domain.model.SyncStatus
 import com.gitsync.domain.repository.GitRepository
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.Status
-import org.eclipse.jgit.lib.RepositoryBuilder
+import org.eclipse.jgit.errors.NoRemoteRepositoryException
+import org.eclipse.jgit.errors.NotAuthorizedException
+import org.eclipse.jgit.errors.TransportException
+import org.eclipse.jgit.lib.Repository
+import org.eclipse.jgit.lib.RepositoryCache
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.eclipse.jgit.transport.RefSpec
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
+import org.eclipse.jgit.util.FS
 import java.io.File
+import java.net.ConnectException
+import java.net.UnknownHostException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,17 +26,51 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
     override suspend fun isGitRepository(projectPath: String): Boolean {
         return try {
             val repoDir = File(projectPath)
-            RepositoryBuilder().setWorkTree(repoDir).build().use { repo ->
-                repo.directory.exists()
-            }
-        } catch (e: Exception) {
+            if (!repoDir.isDirectory) return false
+            val gitDir = File(repoDir, ".git")
+            if (!gitDir.exists()) return false
+            Git.open(repoDir).use { true }
+        } catch (_: Exception) {
             false
+        }
+    }
+
+    override suspend fun hasGitDirectory(projectPath: String): Boolean {
+        return try {
+            val repoDir = File(projectPath)
+            if (!repoDir.isDirectory) return false
+            val gitDir = File(repoDir, ".git")
+            gitDir.exists()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    override suspend fun validateRepository(projectPath: String): Result<Unit> {
+        return try {
+            val repoDir = File(projectPath)
+            if (!repoDir.isDirectory) {
+                return Result.failure(Exception("Directory does not exist: $projectPath"))
+            }
+            val gitDir = File(repoDir, ".git")
+            if (!gitDir.exists()) {
+                return Result.failure(Exception("Not a Git repository: .git directory not found"))
+            }
+            Git.open(repoDir).use { repo ->
+                repo.status().call()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(Exception("Corrupted or invalid repository: ${e.message}"))
         }
     }
 
     override suspend fun initRepository(projectPath: String): Result<Unit> {
         return try {
             val repoDir = File(projectPath)
+            if (!repoDir.exists()) {
+                repoDir.mkdirs()
+            }
             Git.init().setDirectory(repoDir).call()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -54,6 +96,18 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
         }
     }
 
+    override suspend fun hasChanges(projectPath: String): Result<Boolean> {
+        return try {
+            val repoDir = File(projectPath)
+            Git.open(repoDir).use { git ->
+                val status = git.status().call()
+                Result.success(!status.isClean)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     override suspend fun addAll(projectPath: String): Result<Unit> {
         return try {
             val repoDir = File(projectPath)
@@ -70,6 +124,10 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
         return try {
             val repoDir = File(projectPath)
             Git.open(repoDir).use { git ->
+                val status = git.status().call()
+                if (status.isClean) {
+                    return Result.failure(Exception("Nothing to commit - working tree clean"))
+                }
                 val commit = git.commit()
                     .setMessage(message)
                     .setAuthor("GitSync", "gitsync@local.dev")
@@ -98,8 +156,31 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
                     .call()
             }
             Result.success(Unit)
+        } catch (e: NotAuthorizedException) {
+            Result.failure(Exception("Authentication failed. Check your GitHub token."))
+        } catch (e: NoRemoteRepositoryException) {
+            Result.failure(Exception("Remote repository not found. Check owner/repo name."))
+        } catch (e: TransportException) {
+            val msg = e.message ?: ""
+            when {
+                msg.contains("not authorized", ignoreCase = true) ||
+                msg.contains("401", ignoreCase = true) ->
+                    Result.failure(Exception("Authentication failed. Check your GitHub token."))
+                msg.contains("not found", ignoreCase = true) ||
+                msg.contains("404", ignoreCase = true) ->
+                    Result.failure(Exception("Remote repository not found. Check owner/repo name."))
+                msg.contains("timeout", ignoreCase = true) ||
+                msg.contains("timed out", ignoreCase = true) ->
+                    Result.failure(Exception("Connection timed out. Check your internet connection."))
+                else ->
+                    Result.failure(Exception("Push failed: ${e.message}"))
+            }
+        } catch (e: UnknownHostException) {
+            Result.failure(Exception("No internet connection. Check your network."))
+        } catch (e: ConnectException) {
+            Result.failure(Exception("Cannot connect to GitHub. Check your internet connection."))
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception("Push failed: ${e.message}"))
         }
     }
 
@@ -119,6 +200,47 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
                     .call()
             }
             Result.success(Unit)
+        } catch (e: NotAuthorizedException) {
+            Result.failure(Exception("Authentication failed. Check your GitHub token."))
+        } catch (e: NoRemoteRepositoryException) {
+            Result.failure(Exception("Remote repository not found. Check owner/repo name."))
+        } catch (e: TransportException) {
+            val msg = e.message ?: ""
+            when {
+                msg.contains("not authorized", ignoreCase = true) ||
+                msg.contains("401", ignoreCase = true) ->
+                    Result.failure(Exception("Authentication failed. Check your GitHub token."))
+                msg.contains("not found", ignoreCase = true) ||
+                msg.contains("404", ignoreCase = true) ->
+                    Result.failure(Exception("Remote repository not found. Check owner/repo name."))
+                msg.contains("timeout", ignoreCase = true) ->
+                    Result.failure(Exception("Connection timed out. Check your internet connection."))
+                else ->
+                    Result.failure(Exception("Pull failed: ${e.message}"))
+            }
+        } catch (e: UnknownHostException) {
+            Result.failure(Exception("No internet connection. Check your network."))
+        } catch (e: ConnectException) {
+            Result.failure(Exception("Cannot connect to GitHub. Check your internet connection."))
+        } catch (e: Exception) {
+            Result.failure(Exception("Pull failed: ${e.message}"))
+        }
+    }
+
+    override suspend fun getCurrentBranch(projectPath: String): Result<String> {
+        return try {
+            val repoDir = File(projectPath)
+            Git.open(repoDir).use { git ->
+                val fullBranch = git.repository.fullBranch
+                val branch = when {
+                    fullBranch == null || fullBranch.isEmpty() ->
+                        return Result.failure(Exception("No branch found"))
+                    fullBranch.startsWith("refs/heads/") ->
+                        fullBranch.removePrefix("refs/heads/")
+                    else -> fullBranch
+                }
+                Result.success(branch)
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -166,7 +288,9 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
     override suspend fun getSyncStatus(projectPath: String): SyncStatus {
         return try {
             val repoDir = File(projectPath)
-            if (!repoDir.exists()) return SyncStatus.ERROR
+            if (!repoDir.isDirectory) return SyncStatus.ERROR
+            val gitDir = File(repoDir, ".git")
+            if (!gitDir.exists()) return SyncStatus.ERROR
 
             Git.open(repoDir).use { git ->
                 val status: Status = git.status().call()
@@ -223,5 +347,9 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    override suspend fun getRemoteUrl(projectPath: String): Result<String> {
+        return getOriginUrl(projectPath)
     }
 }

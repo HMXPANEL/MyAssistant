@@ -32,6 +32,7 @@ class ProjectRepositoryImpl @Inject constructor(
     override suspend fun addProject(
         name: String,
         localPath: String,
+        safUri: String,
         repoOwner: String,
         repoName: String,
         branch: String,
@@ -40,6 +41,7 @@ class ProjectRepositoryImpl @Inject constructor(
         val entity = ProjectEntity(
             name = name,
             localPath = localPath,
+            safUri = safUri,
             repoOwner = repoOwner,
             repoName = repoName,
             branch = branch,
@@ -58,6 +60,7 @@ class ProjectRepositoryImpl @Inject constructor(
             id = project.id,
             name = project.name,
             localPath = project.localPath,
+            safUri = project.safUri.ifEmpty { existing?.safUri ?: "" },
             repoOwner = project.repoOwner,
             repoName = project.repoName,
             branch = project.branch,
@@ -78,6 +81,7 @@ class ProjectRepositoryImpl @Inject constructor(
             id = id,
             name = name,
             localPath = localPath,
+            safUri = safUri,
             repoOwner = repoOwner,
             repoName = repoName,
             branch = branch,

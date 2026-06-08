@@ -21,7 +21,10 @@ data class ProjectDetailState(
     val isLoading: Boolean = true,
     val isPushing: Boolean = false,
     val isPulling: Boolean = false,
+    val isInitializing: Boolean = false,
     val syncStatus: SyncStatus = SyncStatus.UNKNOWN,
+    val detectedBranch: String = "",
+    val isGitRepo: Boolean = false,
     val modifiedFiles: List<String> = emptyList(),
     val error: String? = null,
     val successMessage: String? = null
@@ -53,22 +56,59 @@ class ProjectDetailViewModel @Inject constructor(
 
             projectRepository.getProjectById(projectId).collect { project ->
                 if (project != null) {
-                    val status = gitRepository.getSyncStatus(project.localPath)
-                    val files = gitRepository.getModifiedFiles(project.localPath)
-                        .getOrDefault(emptyList())
+                    val isRepo = gitRepository.isGitRepository(project.localPath)
+                    val currentBranch = if (isRepo) {
+                        gitRepository.getCurrentBranch(project.localPath)
+                            .getOrDefault("")
+                    } else ""
+
+                    val status = if (isRepo) {
+                        gitRepository.getSyncStatus(project.localPath)
+                    } else SyncStatus.ERROR
+
+                    val files = if (isRepo) {
+                        gitRepository.getModifiedFiles(project.localPath)
+                            .getOrDefault(emptyList())
+                    } else emptyList()
 
                     _state.value = _state.value.copy(
                         project = project.copy(
                             syncStatus = status,
-                            modifiedFiles = files
+                            modifiedFiles = files,
+                            branch = currentBranch.ifEmpty { project.branch }
                         ),
                         syncStatus = status,
+                        detectedBranch = currentBranch,
+                        isGitRepo = isRepo,
                         modifiedFiles = files,
                         isLoading = false
                     )
                 } else {
                     _state.value = _state.value.copy(isLoading = false, error = "Project not found")
                 }
+            }
+        }
+    }
+
+    fun initRepo() {
+        viewModelScope.launch {
+            val project = _state.value.project ?: return@launch
+            _state.value = _state.value.copy(isInitializing = true, error = null)
+
+            try {
+                gitRepository.initRepository(project.localPath)
+                    .getOrThrow()
+
+                _state.value = _state.value.copy(
+                    isInitializing = false,
+                    isGitRepo = true,
+                    successMessage = "Repository initialized"
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    isInitializing = false,
+                    error = e.message ?: "Failed to initialize repository"
+                )
             }
         }
     }
@@ -89,39 +129,57 @@ class ProjectDetailViewModel @Inject constructor(
                 }
 
                 if (!gitRepository.isGitRepository(project.localPath)) {
-                    gitRepository.initRepository(project.localPath)
+                    _state.value = _state.value.copy(
+                        isPushing = false,
+                        error = "Not a Git repository. Initialize it first."
+                    )
+                    return@launch
                 }
 
-                gitRepository.addAll(project.localPath)
+                val hasChanges = gitRepository.hasChanges(project.localPath)
                     .getOrThrow()
 
-                val hash = gitRepository.commit(
-                    project.localPath,
-                    "Auto-sync from GitSync"
-                ).getOrThrow()
+                if (hasChanges) {
+                    gitRepository.addAll(project.localPath)
+                        .getOrThrow()
 
-                val username = authRepository.getUsername()
-                val token = authRepository.getToken()
+                    val hash = gitRepository.commit(
+                        project.localPath,
+                        "Auto-sync from GitSync"
+                    ).getOrThrow()
 
-                gitRepository.push(
-                    project.localPath,
-                    username,
-                    token,
-                    project.branch
-                ).getOrThrow()
+                    val currentBranch = gitRepository.getCurrentBranch(project.localPath)
+                        .getOrDefault(project.branch)
 
-                projectRepository.updateProject(
-                    project.copy(
-                        lastSyncTime = System.currentTimeMillis(),
-                        lastCommitHash = hash.take(7),
-                        lastCommitMessage = "Auto-sync from GitSync"
+                    val username = authRepository.getUsername()
+                    val token = authRepository.getToken()
+
+                    gitRepository.push(
+                        project.localPath,
+                        username,
+                        token,
+                        currentBranch
+                    ).getOrThrow()
+
+                    projectRepository.updateProject(
+                        project.copy(
+                            lastSyncTime = System.currentTimeMillis(),
+                            lastCommitHash = hash.take(7),
+                            lastCommitMessage = "Auto-sync from GitSync",
+                            branch = currentBranch
+                        )
                     )
-                )
 
-                _state.value = _state.value.copy(
-                    isPushing = false,
-                    successMessage = "Successfully pushed to ${project.branch}"
-                )
+                    _state.value = _state.value.copy(
+                        isPushing = false,
+                        successMessage = "Successfully pushed to $currentBranch"
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        isPushing = false,
+                        successMessage = "Nothing to push - working tree clean"
+                    )
+                }
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     isPushing = false,
@@ -137,6 +195,16 @@ class ProjectDetailViewModel @Inject constructor(
             _state.value = _state.value.copy(isPulling = true, error = null)
 
             try {
+                if (!gitRepository.isGitRepository(project.localPath)) {
+                    _state.value = _state.value.copy(
+                        isPulling = false,
+                        error = "Not a Git repository. Initialize it first."
+                    )
+                    return@launch
+                }
+
+                val currentBranch = gitRepository.getCurrentBranch(project.localPath)
+                    .getOrDefault(project.branch)
                 val username = authRepository.getUsername()
                 val token = authRepository.getToken()
 
@@ -144,12 +212,12 @@ class ProjectDetailViewModel @Inject constructor(
                     project.localPath,
                     username,
                     token,
-                    project.branch
+                    currentBranch
                 ).getOrThrow()
 
                 _state.value = _state.value.copy(
                     isPulling = false,
-                    successMessage = "Successfully pulled from ${project.branch}"
+                    successMessage = "Successfully pulled from $currentBranch"
                 )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(

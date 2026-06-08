@@ -22,4 +22,6 @@ sealed class Screen(val route: String) {
     data object Commits : Screen("commits/{projectId}") {
         fun createRoute(projectId: Long) = "commits/$projectId"
     }
+
+    data object DevDiagnostics : Screen("dev_diagnostics")
 }

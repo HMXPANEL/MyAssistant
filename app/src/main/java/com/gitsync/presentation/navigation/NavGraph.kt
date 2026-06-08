@@ -17,6 +17,7 @@ import com.gitsync.presentation.projectdetail.ProjectDetailScreen
 import com.gitsync.presentation.projects.ProjectsScreen
 import com.gitsync.presentation.settings.SettingsScreen
 import com.gitsync.presentation.setup.SetupScreen
+import com.gitsync.presentation.devdiagnostics.DevDiagnosticsScreen
 import com.gitsync.presentation.splash.SplashScreen
 import com.gitsync.presentation.workflow.WorkflowScreen
 
@@ -146,6 +147,15 @@ fun NavGraph(
 
         composable(Screen.Settings.route) {
             SettingsScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToDevDiagnostics = {
+                    navController.navigate(Screen.DevDiagnostics.route)
+                }
+            )
+        }
+
+        composable(Screen.DevDiagnostics.route) {
+            DevDiagnosticsScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

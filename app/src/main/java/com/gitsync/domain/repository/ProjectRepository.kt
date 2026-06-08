@@ -10,6 +10,7 @@ interface ProjectRepository {
     suspend fun addProject(
         name: String,
         localPath: String,
+        safUri: String,
         repoOwner: String,
         repoName: String,
         branch: String,

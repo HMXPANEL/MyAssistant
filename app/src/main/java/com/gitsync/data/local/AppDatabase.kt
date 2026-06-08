@@ -15,7 +15,7 @@ import com.gitsync.data.local.entity.WorkflowRunEntity
         CommitEntity::class,
         WorkflowRunEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

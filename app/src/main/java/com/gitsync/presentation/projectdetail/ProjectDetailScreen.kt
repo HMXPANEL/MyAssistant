@@ -13,12 +13,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -80,7 +83,7 @@ fun ProjectDetailScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -114,7 +117,7 @@ fun ProjectDetailScreen(
                 item {
                     InfoCard(
                         title = "Branch",
-                        value = project.branch,
+                        value = state.detectedBranch.ifBlank { project.branch },
                         trailing = {
                             SyncStatusBadge(status = state.syncStatus)
                         }
@@ -141,6 +144,50 @@ fun ProjectDetailScreen(
                     }
                 }
 
+                if (!state.isGitRepo) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "This folder is not a Git repository",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = { viewModel.initRepo() },
+                                    enabled = !state.isInitializing
+                                ) {
+                                    if (state.isInitializing) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.height(16.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Text("Initialize Repository")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Action buttons
                 item {
                     Row(
@@ -150,7 +197,7 @@ fun ProjectDetailScreen(
                         Card(
                             onClick = { viewModel.pushNow() },
                             modifier = Modifier.weight(1f),
-                            enabled = !state.isPushing && !state.isPulling,
+                            enabled = state.isGitRepo && !state.isPushing && !state.isPulling,
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                             )
@@ -184,7 +231,7 @@ fun ProjectDetailScreen(
                         Card(
                             onClick = { viewModel.pullNow() },
                             modifier = Modifier.weight(1f),
-                            enabled = !state.isPushing && !state.isPulling,
+                            enabled = state.isGitRepo && !state.isPushing && !state.isPulling,
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                             )

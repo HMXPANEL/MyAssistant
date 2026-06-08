@@ -57,6 +57,20 @@ class SetupViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
 
+            val validationResult = authRepository.validateCredentials(
+                username = s.username.trim(),
+                token = s.token.trim()
+            )
+
+            if (validationResult.isFailure) {
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    error = validationResult.exceptionOrNull()?.message
+                        ?: "Failed to validate credentials"
+                )
+                return@launch
+            }
+
             authRepository.saveCredentials(
                 username = s.username.trim(),
                 token = s.token.trim(),

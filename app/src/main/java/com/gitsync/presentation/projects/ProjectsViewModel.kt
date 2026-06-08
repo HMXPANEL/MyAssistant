@@ -2,13 +2,10 @@ package com.gitsync.presentation.projects
 
 import android.app.Application
 import android.net.Uri
-import android.os.Environment
-import android.os.storage.StorageManager
-import android.os.storage.StorageVolume
-import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gitsync.core.util.SafUriHelper
 import com.gitsync.domain.model.Project
 import com.gitsync.domain.repository.AuthRepository
 import com.gitsync.domain.repository.GitRepository
@@ -87,8 +84,7 @@ class ProjectsViewModel @Inject constructor(
     }
 
     fun onFolderSelected(uri: Uri) {
-        val docFile = DocumentFile.fromTreeUri(application, uri)
-        val name = docFile?.name ?: "Untitled"
+        val name = SafUriHelper.getDirectoryName(application, uri)
 
         _state.value = _state.value.copy(
             selectedFolderUri = uri,
@@ -133,42 +129,33 @@ class ProjectsViewModel @Inject constructor(
             _state.value = s.copy(error = "Branch is required")
             return
         }
+        if (s.selectedFolderUri == null) {
+            _state.value = s.copy(error = "Please select a folder")
+            return
+        }
 
         viewModelScope.launch {
             _state.value = _state.value.copy(isAdding = true, error = null)
 
             try {
-                val token = authRepository.getToken()
-
-                if (s.selectedFolderUri != null) {
-                    application.contentResolver.takePersistableUriPermission(
-                        s.selectedFolderUri,
-                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                                android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                if (!SafUriHelper.isValidDirectory(application, s.selectedFolderUri)) {
+                    _state.value = _state.value.copy(
+                        isAdding = false,
+                        error = "Selected folder is not valid or accessible"
                     )
+                    return@launch
                 }
 
-                val uriString = s.selectedFolderUri?.toString() ?: ""
-                val localPath = if (s.selectedFolderUri != null) {
-                    try {
-                        val docId = DocumentsContract.getTreeDocumentId(s.selectedFolderUri)
-                        val parts = docId.split(":")
-                        val relative = parts.getOrElse(1) { "" }
-                        if (parts[0] == "primary") {
-                            "${Environment.getExternalStorageDirectory()}/$relative"
-                        } else {
-                            resolveSecondaryStoragePath(application, parts[0], relative)
-                        }
-                    } catch (_: Exception) {
-                        uriString
-                    }
-                } else {
-                    ""
-                }
+                SafUriHelper.takePersistablePermissions(application, s.selectedFolderUri)
 
-                val projectId = projectRepository.addProject(
+                val uriString = s.selectedFolderUri.toString()
+                val localPath = SafUriHelper.resolveLocalPath(application, s.selectedFolderUri)
+                    ?: uriString
+
+                projectRepository.addProject(
                     name = s.projectName.trim(),
                     localPath = localPath,
+                    safUri = uriString,
                     repoOwner = s.repoOwner.trim(),
                     repoName = s.repoName.trim(),
                     branch = s.branch.trim(),
@@ -194,6 +181,14 @@ class ProjectsViewModel @Inject constructor(
 
     fun removeProject(project: Project) {
         viewModelScope.launch {
+            if (project.safUri.isNotBlank()) {
+                try {
+                    SafUriHelper.releasePersistablePermissions(
+                        application,
+                        android.net.Uri.parse(project.safUri)
+                    )
+                } catch (_: Exception) { }
+            }
             projectRepository.removeProject(project.id)
         }
     }
@@ -201,24 +196,4 @@ class ProjectsViewModel @Inject constructor(
     fun refresh() {
         loadProjects()
     }
-}
-
-private fun resolveSecondaryStoragePath(
-    application: Application,
-    volumeId: String,
-    relative: String
-): String {
-    val storageManager = application.getSystemService(StorageManager::class.java)
-    val volume = storageManager.storageVolumes.firstOrNull { it.uuid == volumeId }
-    if (volume != null) {
-        try {
-            val field = StorageVolume::class.java.getDeclaredField("mPath")
-            field.isAccessible = true
-            val mountPoint = field.get(volume) as String
-            return "$mountPoint/$relative"
-        } catch (_: Exception) {
-            // fall through
-        }
-    }
-    return "/storage/$volumeId/$relative"
 }

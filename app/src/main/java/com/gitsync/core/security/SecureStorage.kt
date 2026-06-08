@@ -30,7 +30,19 @@ class SecureStorage @Inject constructor(
 
     var githubToken: String
         get() = prefs.getString(KEY_TOKEN, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_TOKEN, value).apply()
+        set(value) {
+            if (value.isNotBlank() && value.length < 6) {
+                throw IllegalArgumentException("Token appears invalid (too short)")
+            }
+            prefs.edit().putString(KEY_TOKEN, value).apply()
+        }
+
+    val maskedToken: String
+        get() {
+            val token = githubToken
+            if (token.length <= 8) return "••••••••"
+            return "${token.take(4)}••••${token.takeLast(4)}"
+        }
 
     var defaultBranch: String
         get() = prefs.getString(KEY_BRANCH, "main") ?: "main"

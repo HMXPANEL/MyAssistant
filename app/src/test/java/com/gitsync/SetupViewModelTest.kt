@@ -2,8 +2,9 @@ package com.gitsync
 
 import com.gitsync.data.repository.AuthRepositoryImpl
 import com.gitsync.presentation.setup.SetupViewModel
-import io.mockk.mockk
+import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -14,7 +15,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -30,6 +30,7 @@ class SetupViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         authRepository = mockk(relaxed = true)
+        coEvery { authRepository.validateCredentials(any(), any()) } returns Result.success(true)
         viewModel = SetupViewModel(authRepository)
     }
 
@@ -107,6 +108,21 @@ class SetupViewModelTest {
     }
 
     @Test
+    fun `validation fails when credentials are invalid`() = runTest {
+        coEvery { authRepository.validateCredentials(any(), any()) } returns Result.failure(Exception("Invalid token"))
+
+        viewModel.onUsernameChanged("testuser")
+        viewModel.onTokenChanged("invalid_token")
+        viewModel.onBranchChanged("main")
+
+        viewModel.validateAndSave()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertNotNull(viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isSuccess)
+    }
+
+    @Test
     fun `validation passes with valid inputs`() = runTest {
         viewModel.onUsernameChanged("testuser")
         viewModel.onTokenChanged("ghp_valid_token_123")
@@ -115,6 +131,7 @@ class SetupViewModelTest {
         viewModel.validateAndSave()
         testDispatcher.scheduler.advanceUntilIdle()
 
+        coVerify { authRepository.validateCredentials("testuser", "ghp_valid_token_123") }
         coVerify { authRepository.saveCredentials("testuser", "ghp_valid_token_123", "main") }
     }
 }
