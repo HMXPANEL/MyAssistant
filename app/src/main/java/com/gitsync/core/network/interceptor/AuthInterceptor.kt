@@ -18,7 +18,7 @@ class AuthInterceptor @Inject constructor(
         }
 
         val request = original.newBuilder()
-            .header("Authorization", "Bearer $token")
+            .header("Authorization", "token $token")
             .header("Accept", "application/vnd.github.v3+json")
             .build()
 

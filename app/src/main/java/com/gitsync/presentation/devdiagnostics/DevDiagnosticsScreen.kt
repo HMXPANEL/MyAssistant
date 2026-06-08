@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -54,8 +55,8 @@ fun DevDiagnosticsScreen(
                 .padding(padding),
             contentPadding = PaddingValues(16.dp)
         ) {
-            items(state.entries.toList()) { entry ->
-                DiagnosticItem(entry.first, entry.second)
+            items(state.entries) { (key, value) ->
+                DiagnosticItem(key, value)
                 Spacer(modifier = Modifier.height(8.dp))
             }
         }

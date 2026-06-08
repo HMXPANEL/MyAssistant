@@ -21,7 +21,7 @@ object SyncScheduler {
         }
 
         val workRequest = PeriodicWorkRequestBuilder<SyncWorker>(
-            interval.minutes,
+            maxOf(interval.minutes, 15L),
             TimeUnit.MINUTES
         ).addTag(Constants.SYNC_WORK_NAME)
             .build()

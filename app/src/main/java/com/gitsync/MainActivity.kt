@@ -51,15 +51,9 @@ class MainActivity : ComponentActivity() {
                         initialValue = SplashState()
                     )
 
-                    val startDestination = if (splashState.isSetupComplete) {
-                        "dashboard"
-                    } else {
-                        "splash"
-                    }
-
                     NavGraph(
                         navController = navController,
-                        startDestination = startDestination
+                        startDestination = "splash"
                     )
                 }
             }
