@@ -79,7 +79,7 @@ object SafUriHelper {
     ): String? {
         val storageManager = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
         val volume = storageManager?.storageVolumes?.firstOrNull {
-            it.uuid == volumeId || it.getMediaStoreVolumeName() == volumeId
+            it.uuid == volumeId || it.getMediaStoreVolumeNameCompat() == volumeId
         }
         if (volume != null) {
             try {
@@ -95,7 +95,7 @@ object SafUriHelper {
         return null
     }
 
-    private fun StorageVolume.getMediaStoreVolumeName(): String? {
+    private fun StorageVolume.getMediaStoreVolumeNameCompat(): String? {
         return try {
             val method = StorageVolume::class.java.getMethod("getMediaStoreVolumeName")
             method.invoke(this) as? String
