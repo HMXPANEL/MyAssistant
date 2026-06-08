@@ -1,6 +1,8 @@
 package com.gitsync
 
+import android.net.Uri
 import com.gitsync.core.util.SafUriHelper
+import io.mockk.mockk
 import org.junit.Test
 
 class SafUriHelperTest {
@@ -8,8 +10,8 @@ class SafUriHelperTest {
     @Test
     fun `resolveLocalPath handles invalid uri gracefully`() {
         val result = SafUriHelper.resolveLocalPath(
-            io.mockk.mockk(relaxed = true),
-            android.net.Uri.parse("invalid://uri")
+            mockk(relaxed = true),
+            mockk<Uri>(relaxed = true)
         )
         // Should return null for invalid URIs, not crash
     }
@@ -17,8 +19,8 @@ class SafUriHelperTest {
     @Test
     fun `isValidDirectory handles invalid uri gracefully`() {
         SafUriHelper.isValidDirectory(
-            io.mockk.mockk(relaxed = true),
-            android.net.Uri.parse("invalid://uri")
+            mockk(relaxed = true),
+            mockk<Uri>(relaxed = true)
         )
         // Should not crash
     }
@@ -26,8 +28,8 @@ class SafUriHelperTest {
     @Test
     fun `getDirectoryName handles invalid uri gracefully`() {
         SafUriHelper.getDirectoryName(
-            io.mockk.mockk(relaxed = true),
-            android.net.Uri.parse("invalid://uri")
+            mockk(relaxed = true),
+            mockk<Uri>(relaxed = true)
         )
         // Should not crash
     }
