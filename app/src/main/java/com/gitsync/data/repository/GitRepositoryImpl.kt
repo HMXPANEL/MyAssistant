@@ -375,6 +375,15 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
                 val repoDir = File(projectPath)
                 if (!repoDir.exists()) repoDir.mkdirs()
 
+                if (!repoDir.canRead()) {
+                    return@withContext Result.failure(Exception("Cannot read directory: $projectPath. Check SAF permissions."))
+                }
+
+                val files = repoDir.listFiles()
+                if (files == null || files.isEmpty()) {
+                    return@withContext Result.failure(Exception("Directory is empty: $projectPath. Add files first."))
+                }
+
                 val isAlreadyRepo = try {
                     val gitDir = File(repoDir, ".git")
                     gitDir.exists() && Git.open(repoDir) != null
@@ -428,7 +437,12 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
                     Result.success(commitHash)
                 }
             } catch (e: Exception) {
-                Result.failure(Exception("Setup failed: ${e.message}"))
+                val msg = e.message ?: "Unknown error"
+                when {
+                    msg.contains("add", ignoreCase = true) -> Result.failure(Exception("Add failed: No files to commit or permission denied. Path: $projectPath"))
+                    msg.contains("push", ignoreCase = true) -> Result.failure(Exception("Push failed: $msg"))
+                    else -> Result.failure(Exception("Setup failed: $msg"))
+                }
             }
         }
     }
