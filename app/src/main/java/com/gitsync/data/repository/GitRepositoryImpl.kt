@@ -466,40 +466,67 @@ class GitRepositoryImpl @Inject constructor(
             var lastBlobError: Exception? = null
             var blobSuccessCount = 0
 
-            filesToPush.chunked(20).forEach { chunk ->
-                coroutineScope {
-                    chunk.map { file ->
-                        async {
-                            try {
-                                val rel = file.relativeTo(repoDir).path.replace("\\", "/")
-                                val base64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
-                                val blobResp = gitHubApi.createBlob(
-                                    owner, repo,
-                                    CreateBlobRequestDto(
-                                        content = base64,
-                                        encoding = "base64"
-                                    )
-                                )
-                                synchronized(treeEntries) {
-                                    treeEntries.add(
-                                        TreeEntryDto(
-                                            path = rel,
-                                            sha = blobResp.sha
-                                        )
-                                    )
-                                    blobSuccessCount++
-                                }
-                            } catch (e: HttpException) {
-                                lastBlobError = e
-                                android.util.Log.e("GitSync", "Blob create failed for ${file.name}: ${e.code()} ${e.message}")
-                            } catch (e: Exception) {
-                                lastBlobError = e
-                                android.util.Log.e("GitSync", "Blob create failed for ${file.name}: ${e.message}")
-                            }
-                        }
-                    }.awaitAll()
+            val syncStartTime = System.currentTimeMillis()
+            val scanStartTime = System.currentTimeMillis()
+
+            val ignoredFiles = mutableListOf<String>()
+            repoDir.walkTopDown().filter { it.isFile }.forEach { file ->
+                val rel = file.relativeTo(repoDir).path.replace("\\", "/")
+                if (rel.startsWith(".git/") ||
+                    rel.startsWith(".gradle/") ||
+                    rel.startsWith("build/") ||
+                    rel.startsWith(".idea/") ||
+                    rel.startsWith("captures/") ||
+                    rel.endsWith(".class") ||
+                    rel.endsWith(".dex") ||
+                    file.length() >= 5 * 1024 * 1024) {
+                    ignoredFiles.add(rel)
                 }
             }
+
+            val scanDuration = System.currentTimeMillis() - scanStartTime
+            android.util.Log.i("GitSync", "Folder scan: ${filesToPush.size} files to upload, ${ignoredFiles.size} ignored, took ${scanDuration}ms")
+
+            val blobStartTime = System.currentTimeMillis()
+            var apiRequestCount = 0
+
+            coroutineScope {
+                filesToPush.map { file ->
+                    async {
+                        try {
+                            val rel = file.relativeTo(repoDir).path.replace("\\", "/")
+                            val base64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                            val blobResp = gitHubApi.createBlob(
+                                owner, repo,
+                                CreateBlobRequestDto(
+                                    content = base64,
+                                    encoding = "base64"
+                                )
+                            )
+                            synchronized(treeEntries) {
+                                treeEntries.add(
+                                    TreeEntryDto(
+                                        path = rel,
+                                        sha = blobResp.sha
+                                    )
+                                )
+                                blobSuccessCount++
+                                apiRequestCount++
+                            }
+                        } catch (e: HttpException) {
+                            lastBlobError = e
+                            apiRequestCount++
+                            android.util.Log.e("GitSync", "Blob create failed for ${file.name}: ${e.code()} ${e.message}")
+                        } catch (e: Exception) {
+                            lastBlobError = e
+                            android.util.Log.e("GitSync", "Blob create failed for ${file.name}: ${e.message}")
+                        }
+                    }
+                }.awaitAll()
+            }
+
+            val blobDuration = System.currentTimeMillis() - blobStartTime
+            android.util.Log.i("GitSync", "Blob creation: $blobSuccessCount/${filesToPush.size} succeeded, ${blobDuration}ms, $apiRequestCount API requests")
 
             if (treeEntries.isEmpty()) {
                 val errorMessage = when {
@@ -526,27 +553,40 @@ class GitRepositoryImpl @Inject constructor(
 
             val parentSha: String? = try {
                 gitHubApi.getRef(owner, repo, branch).refObject?.sha
-            } catch (_: Exception) { null }
+            } catch (e: HttpException) {
+                if (e.code() == 404) null else throw e
+            } catch (_: Exception) {
+                null
+            }
 
-            val baseTreeSha: String? = parentSha
+            val isEmptyRepo = parentSha == null
 
+            val treeStartTime = System.currentTimeMillis()
             val treeResp = gitHubApi.createTree(
                 owner, repo,
                 CreateTreeRequestDto(
-                    baseTree = baseTreeSha,
+                    baseTree = if (isEmptyRepo) null else parentSha,
                     tree = treeEntries
                 )
             )
+            val treeDuration = System.currentTimeMillis() - treeStartTime
+            apiRequestCount++
+            android.util.Log.i("GitSync", "Tree creation: ${treeDuration}ms, API requests: $apiRequestCount")
 
+            val commitStartTime = System.currentTimeMillis()
             val commitResp = gitHubApi.createCommit(
                 owner, repo,
                 CreateCommitRequestDto(
-                    message = "Sync from GitSync\n\n${treeEntries.size} files uploaded",
+                    message = if (isEmptyRepo) "Initial commit via GitSync" else "Sync from GitSync\n\n${treeEntries.size} files uploaded",
                     tree = treeResp.sha,
                     parents = if (parentSha != null) listOf(parentSha) else emptyList()
                 )
             )
+            val commitDuration = System.currentTimeMillis() - commitStartTime
+            apiRequestCount++
+            android.util.Log.i("GitSync", "Commit creation: ${commitDuration}ms, API requests: $apiRequestCount")
 
+            val refStartTime = System.currentTimeMillis()
             try {
                 gitHubApi.updateRef(owner, repo, branch,
                     UpdateRefRequestDto(
@@ -557,6 +597,12 @@ class GitRepositoryImpl @Inject constructor(
             } catch (e: Exception) {
                 android.util.Log.w("GitSync", "updateRef: ${e.message}")
             }
+            val refDuration = System.currentTimeMillis() - refStartTime
+            apiRequestCount++
+            android.util.Log.i("GitSync", "Ref update: ${refDuration}ms, API requests: $apiRequestCount")
+
+            val totalDuration = System.currentTimeMillis() - syncStartTime
+            android.util.Log.i("GitSync", "Total sync: ${totalDuration}ms, Files: ${treeEntries.size}, Total API requests: $apiRequestCount")
 
             Result.success(commitResp.sha.take(7))
 
