@@ -157,10 +157,13 @@ class ProjectsViewModel @Inject constructor(
 
                 val uriString = s.selectedFolderUri.toString()
                 val localPath = SafUriHelper.resolveLocalPath(application, s.selectedFolderUri)
-                    ?: return@launch _state.value.copy(
+                if (localPath == null) {
+                    _state.value = _state.value.copy(
                         isAdding = false,
                         error = "Cannot resolve folder path. Please grant 'All Files Access' permission:\nSettings > Apps > GitSync > Permissions > Files and media > Allow management of all files"
                     )
+                    return@launch
+                }
 
                 projectRepository.addProject(
                     name = s.projectName.trim(),
