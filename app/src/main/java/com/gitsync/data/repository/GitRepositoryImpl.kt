@@ -370,80 +370,125 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
         token: String,
         branch: String
     ): Result<String> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val repoDir = File(projectPath)
-                if (!repoDir.exists()) repoDir.mkdirs()
+        return try {
+            val repoDir = File(projectPath)
+            
+            // Validate the path is accessible
+            if (!repoDir.exists()) {
+                repoDir.mkdirs()
+            }
+            if (!repoDir.canRead()) {
+                return Result.failure(Exception(
+                    "Cannot read folder. Grant 'All Files Access' in:\n" +
+                    "Settings > Apps > GitSync > Permissions > Files and media > Allow management of all files"
+                ))
+            }
+            if (!repoDir.canWrite()) {
+                return Result.failure(Exception(
+                    "Cannot write to folder. Grant 'All Files Access' in:\n" +
+                    "Settings > Apps > GitSync > Permissions > Files and media"
+                ))
+            }
 
-                if (!repoDir.canRead()) {
-                    return@withContext Result.failure(Exception("Cannot read directory: $projectPath. Check SAF permissions."))
-                }
+            // Step 1: Init or open repo
+            val isExistingRepo = File(repoDir, ".git").exists()
+            val git = if (isExistingRepo) {
+                Git.open(repoDir)
+            } else {
+                Git.init().setDirectory(repoDir).call()
+            }
 
-                val files = repoDir.listFiles()
-                if (files == null || files.isEmpty()) {
-                    return@withContext Result.failure(Exception("Directory is empty: $projectPath. Add files first."))
-                }
-
-                val isAlreadyRepo = try {
-                    val gitDir = File(repoDir, ".git")
-                    gitDir.exists() && Git.open(repoDir) != null
-                } catch (_: Exception) { false }
-
-                val git = if (isAlreadyRepo) {
-                    Git.open(repoDir)
+            git.use { g ->
+                // Step 2: Set or update remote
+                val remotes = g.remoteList().call()
+                val hasOrigin = remotes.any { it.name == "origin" }
+                if (hasOrigin) {
+                    g.remoteSetUrl()
+                        .setRemoteName("origin")
+                        .setRemoteUri(URIish(remoteUrl))
+                        .call()
                 } else {
-                    Git.init().setDirectory(repoDir).call()
+                    g.remoteAdd()
+                        .setName("origin")
+                        .setUri(URIish(remoteUrl))
+                        .call()
                 }
 
-                git.use { g ->
-                    val remotes = g.remoteList().call()
-                    val hasOrigin = remotes.any { it.name == "origin" }
-                    if (hasOrigin) {
-                        g.remoteSetUrl()
-                            .setRemoteName("origin")
-                            .setRemoteUri(URIish(remoteUrl))
-                            .call()
-                    } else {
-                        g.remoteAdd()
-                            .setName("origin")
-                            .setUri(URIish(remoteUrl))
-                            .call()
-                    }
+                // Step 3: Stage all files
+                g.add().addFilepattern(".").call()
 
-                    g.add().addFilepattern(".").call()
+                // Step 4: Also stage deletions
+                g.add().addFilepattern(".").setUpdate(true).call()
 
-                    val status = g.status().call()
-                    val commitHash = if (!status.isClean) {
+                // Step 5: Check if anything was staged
+                val status = g.status().call()
+                val hasAnythingToCommit = !status.isClean ||
+                    status.added.isNotEmpty() ||
+                    status.modified.isNotEmpty() ||
+                    status.untracked.isNotEmpty()
+
+                val commitHash = if (hasAnythingToCommit) {
+                    val commit = g.commit()
+                        .setMessage("Initial commit from GitSync")
+                        .setAuthor(username.ifBlank { "GitSync" }, "gitsync@local.dev")
+                        .call()
+                    commit.name
+                } else {
+                    // Repo is clean — check if there are existing commits to push
+                    try {
+                        val logs = g.log().setMaxCount(1).call().toList()
+                        if (logs.isEmpty()) {
+                            // Truly empty repo — create a README and commit it
+                            val readme = File(repoDir, "README.md")
+                            if (!readme.exists()) {
+                                readme.writeText("# ${repoDir.name}\n\nCreated by GitSync")
+                            }
+                            g.add().addFilepattern("README.md").call()
+                            val commit = g.commit()
+                                .setMessage("Initial commit from GitSync")
+                                .setAuthor(username.ifBlank { "GitSync" }, "gitsync@local.dev")
+                                .call()
+                            commit.name
+                        } else {
+                            logs[0].name
+                        }
+                    } catch (_: Exception) {
+                        // org.eclipse.jgit.api.errors.NoHeadException — totally empty repo
+                        val readme = File(repoDir, "README.md")
+                        if (!readme.exists()) {
+                            readme.writeText("# ${repoDir.name}\n\nCreated by GitSync")
+                        }
+                        g.add().addFilepattern("README.md").call()
                         val commit = g.commit()
                             .setMessage("Initial commit from GitSync")
-                            .setAuthor("GitSync", "gitsync@local.dev")
+                            .setAuthor(username.ifBlank { "GitSync" }, "gitsync@local.dev")
                             .call()
                         commit.name
-                    } else {
-                        try {
-                            val log = g.log().setMaxCount(1).call().iterator()
-                            if (log.hasNext()) log.next().name else "no-commits"
-                        } catch (_: Exception) { "no-commits" }
                     }
-
-                    val credentials = UsernamePasswordCredentialsProvider(username, token)
-                    g.push()
-                        .setCredentialsProvider(credentials)
-                        .setRemote("origin")
-                        .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
-                        .setTimeout(60_000)
-                        .call()
-
-                    Result.success(commitHash)
                 }
-            } catch (e: Exception) {
-                val msg = e.message ?: "Unknown error"
-                when {
-                    msg.contains("add", ignoreCase = true) -> Result.failure(Exception("Add failed: No files to commit or permission denied. Path: $projectPath"))
-                    msg.contains("push", ignoreCase = true) -> Result.failure(Exception("Push failed: $msg"))
-                    else -> Result.failure(Exception("Setup failed: $msg"))
-                }
+
+                // Step 6: Push
+                val credentials = UsernamePasswordCredentialsProvider(username, token)
+                g.push()
+                    .setCredentialsProvider(credentials)
+                    .setRemote("origin")
+                    .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
+                    .call()
+
+                Result.success(commitHash)
             }
+        } catch (e: org.eclipse.jgit.api.errors.TransportException) {
+            val msg = e.message ?: ""
+            when {
+                msg.contains("401") || msg.contains("not authorized", ignoreCase = true) ->
+                    Result.failure(Exception("Push failed: Invalid GitHub token. Check your PAT has 'repo' scope."))
+                msg.contains("not found", ignoreCase = true) || msg.contains("404") ->
+                    Result.failure(Exception("Push failed: Repository not found on GitHub. Create it first or check owner/name."))
+                else ->
+                    Result.failure(Exception("Push failed: ${e.message}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Setup failed: ${e.message}"))
         }
     }
 }

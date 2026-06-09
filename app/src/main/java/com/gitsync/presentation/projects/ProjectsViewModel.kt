@@ -188,22 +188,17 @@ class ProjectsViewModel @Inject constructor(
 
     fun addAndSetupProject() {
         val s = _state.value
-
         if (s.projectName.isBlank()) {
-            _state.value = s.copy(error = "Project name is required")
-            return
+            _state.value = s.copy(error = "Project name is required"); return
         }
         if (s.repoOwner.isBlank()) {
-            _state.value = s.copy(error = "Repository owner is required")
-            return
+            _state.value = s.copy(error = "Repository owner is required"); return
         }
         if (s.repoName.isBlank()) {
-            _state.value = s.copy(error = "Repository name is required")
-            return
+            _state.value = s.copy(error = "Repository name is required"); return
         }
         if (s.selectedFolderUri == null) {
-            _state.value = s.copy(error = "Please select a folder")
-            return
+            _state.value = s.copy(error = "Please select a folder"); return
         }
 
         viewModelScope.launch {
@@ -211,22 +206,32 @@ class ProjectsViewModel @Inject constructor(
 
             try {
                 if (!SafUriHelper.isValidDirectory(application, s.selectedFolderUri)) {
-                    _state.value = _state.value.copy(isAdding = false, error = "Selected folder is not valid or accessible")
+                    _state.value = _state.value.copy(
+                        isAdding = false, setupStep = "",
+                        error = "Selected folder is not valid or accessible"
+                    )
                     return@launch
                 }
 
                 SafUriHelper.takePersistablePermissions(application, s.selectedFolderUri)
 
                 val localPath = SafUriHelper.resolveLocalPath(application, s.selectedFolderUri)
-                    ?: s.selectedFolderUri.toString()
+
+                // Critical: if we can't resolve a real /storage/... path, JGit will fail
+                if (localPath == null || localPath.startsWith("content://")) {
+                    _state.value = _state.value.copy(
+                        isAdding = false, setupStep = "",
+                        error = "Cannot resolve folder path. Please grant 'All Files Access' permission:\nSettings > Apps > GitSync > Permissions > Files and media > Allow management of all files"
+                    )
+                    return@launch
+                }
 
                 val username = authRepository.getUsername()
                 val token = authRepository.getToken()
                 val branch = s.branch.ifBlank { "main" }
-
-                _state.value = _state.value.copy(setupStep = "Initializing local repository...")
-
                 val repoUrl = "https://github.com/${s.repoOwner.trim()}/${s.repoName.trim()}.git"
+
+                _state.value = _state.value.copy(setupStep = "Initializing git repository...")
 
                 val setupResult = gitRepository.setupAndPushProject(
                     projectPath = localPath,
@@ -238,14 +243,11 @@ class ProjectsViewModel @Inject constructor(
 
                 if (setupResult.isFailure) {
                     _state.value = _state.value.copy(
-                        isAdding = false,
-                        setupStep = "",
+                        isAdding = false, setupStep = "",
                         error = setupResult.exceptionOrNull()?.message ?: "Setup failed"
                     )
                     return@launch
                 }
-
-                val commitHash = setupResult.getOrDefault("")
 
                 _state.value = _state.value.copy(setupStep = "Saving project...")
 
@@ -260,20 +262,17 @@ class ProjectsViewModel @Inject constructor(
                 )
 
                 _state.value = _state.value.copy(
-                    isAdding = false,
-                    setupStep = "",
+                    isAdding = false, setupStep = "",
                     showAddDialog = false,
                     selectedFolderUri = null,
-                    projectName = "",
-                    repoName = "",
+                    projectName = "", repoName = "",
                     error = null
                 )
 
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
-                    isAdding = false,
-                    setupStep = "",
-                    error = e.message ?: "Unexpected error during setup"
+                    isAdding = false, setupStep = "",
+                    error = "Add failed: ${e.message}"
                 )
             }
         }
