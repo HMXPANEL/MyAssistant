@@ -12,6 +12,7 @@ import com.gitsync.domain.repository.GitRepository
 import com.gitsync.domain.repository.ProjectRepository
 import com.gitsync.domain.repository.SettingsRepository
 import com.gitsync.domain.repository.WorkflowRepository
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -38,12 +39,17 @@ abstract class RepositoryModule {
     @Singleton
     abstract fun bindSettingsRepository(impl: SettingsRepositoryImpl): SettingsRepository
 
-    @Provides
-    @Singleton
-    fun provideGitRepository(
-        gitHubApi: GitHubApi,
-        secureStorage: SecureStorage
-    ): GitRepository {
-        return GitRepositoryImpl(gitHubApi, secureStorage)
+    @Module
+    @InstallIn(SingletonComponent::class)
+    companion object {
+        @Provides
+        @Singleton
+        @JvmStatic
+        fun provideGitRepository(
+            gitHubApi: GitHubApi,
+            secureStorage: SecureStorage
+        ): GitRepository {
+            return GitRepositoryImpl(gitHubApi, secureStorage)
+        }
     }
 }
