@@ -191,9 +191,9 @@ class GitRepositoryImplTest {
     }
 
     @Test
-    fun `getSyncStatus returns ERROR for non-repo`() = runTest {
+    fun `getSyncStatus returns SYNCED for directory without git folder (REST API project)`() = runTest {
         val status = repository.getSyncStatus(tempDir.absolutePath)
-        assertEquals(com.gitsync.domain.model.SyncStatus.ERROR, status)
+        assertEquals(com.gitsync.domain.model.SyncStatus.SYNCED, status)
     }
 
     @Test
