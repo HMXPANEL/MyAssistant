@@ -14,6 +14,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Headers
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
@@ -92,4 +93,40 @@ interface GitHubApi {
         @Path("path", encoded = true) path: String,
         @Body request: FileContentRequestDto
     ): FileContentResponseDto
+
+    @POST("repos/{owner}/{repo}/git/blobs")
+    suspend fun createBlob(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Body request: com.gitsync.data.remote.dto.CreateBlobRequestDto
+    ): com.gitsync.data.remote.dto.CreateBlobResponseDto
+
+    @POST("repos/{owner}/{repo}/git/trees")
+    suspend fun createTree(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Body request: com.gitsync.data.remote.dto.CreateTreeRequestDto
+    ): com.gitsync.data.remote.dto.CreateTreeResponseDto
+
+    @POST("repos/{owner}/{repo}/git/commits")
+    suspend fun createCommit(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Body request: com.gitsync.data.remote.dto.CreateCommitRequestDto
+    ): com.gitsync.data.remote.dto.CreateCommitResponseDto
+
+    @GET("repos/{owner}/{repo}/git/ref/heads/{branch}")
+    suspend fun getRef(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("branch") branch: String
+    ): com.gitsync.data.remote.dto.RefResponseDto
+
+    @PATCH("repos/{owner}/{repo}/git/refs/heads/{branch}")
+    suspend fun updateRef(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("branch") branch: String,
+        @Body request: com.gitsync.data.remote.dto.UpdateRefRequestDto
+    ): com.gitsync.data.remote.dto.RefResponseDto
 }
