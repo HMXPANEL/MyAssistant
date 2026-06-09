@@ -1,6 +1,9 @@
 package com.gitsync
 
+import com.gitsync.core.network.GitHubApi
+import com.gitsync.core.security.SecureStorage
 import com.gitsync.data.repository.GitRepositoryImpl
+import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -15,10 +18,12 @@ class GitRepositoryImplTest {
     private lateinit var repository: GitRepositoryImpl
     private lateinit var tempDir: File
     private lateinit var gitDir: File
+    private val mockGitHubApi: GitHubApi = mockk(relaxed = true)
+    private val mockSecureStorage: SecureStorage = mockk(relaxed = true)
 
     @Before
     fun setup() {
-        repository = GitRepositoryImpl()
+        repository = GitRepositoryImpl(mockGitHubApi, mockSecureStorage)
         tempDir = createTempDir("gitsync-test-")
         gitDir = File(tempDir, ".git")
     }
