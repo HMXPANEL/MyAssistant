@@ -463,6 +463,9 @@ class GitRepositoryImpl @Inject constructor(
 
             val treeEntries = mutableListOf<TreeEntryDto>()
 
+            var lastBlobError: Exception? = null
+            var blobSuccessCount = 0
+
             filesToPush.chunked(20).forEach { chunk ->
                 coroutineScope {
                     chunk.map { file ->
@@ -484,9 +487,14 @@ class GitRepositoryImpl @Inject constructor(
                                             sha = blobResp.sha
                                         )
                                     )
+                                    blobSuccessCount++
                                 }
+                            } catch (e: HttpException) {
+                                lastBlobError = e
+                                android.util.Log.e("GitSync", "Blob create failed for ${file.name}: ${e.code()} ${e.message}")
                             } catch (e: Exception) {
-                                android.util.Log.w("GitSync", "Skipped ${file.name}: ${e.message}")
+                                lastBlobError = e
+                                android.util.Log.e("GitSync", "Blob create failed for ${file.name}: ${e.message}")
                             }
                         }
                     }.awaitAll()
@@ -494,9 +502,26 @@ class GitRepositoryImpl @Inject constructor(
             }
 
             if (treeEntries.isEmpty()) {
-                return@withContext Result.failure(Exception(
-                    "No files could be uploaded. Check internet connection and token permissions."
-                ))
+                val errorMessage = when {
+                    filesToPush.isEmpty() -> "No files to upload. Project may only contain build artifacts or excluded directories."
+                    blobSuccessCount == 0 && lastBlobError != null -> {
+                        val cause = lastBlobError!!
+                        when (cause) {
+                            is HttpException -> when (cause.code()) {
+                                401 -> "Authentication failed (401). Check your Personal Access Token."
+                                403 -> "Access forbidden (403). Ensure PAT has 'repo' scope."
+                                404 -> "Repository not found (404). Check owner/repo name."
+                                422 -> "GitHub rejected request (422): ${cause.response()?.errorBody()?.string() ?: cause.message}"
+                                else -> "GitHub error ${cause.code()}: ${cause.response()?.errorBody()?.string() ?: cause.message}"
+                            }
+                            is UnknownHostException -> "No internet connection. Check your network."
+                            is ConnectException -> "Cannot connect to GitHub. Check your internet connection."
+                            else -> "Failed to upload files: ${cause.message}"
+                        }
+                    }
+                    else -> "No files could be uploaded. Check internet connection and token permissions."
+                }
+                return@withContext Result.failure(Exception(errorMessage))
             }
 
             val parentSha: String? = try {
