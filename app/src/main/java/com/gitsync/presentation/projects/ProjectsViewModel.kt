@@ -251,7 +251,8 @@ class ProjectsViewModel @Inject constructor(
 
                 _state.value = _state.value.copy(setupStep = "Saving project...")
 
-                projectRepository.addProject(
+                val commitHash = setupResult.getOrNull() ?: ""
+                val newProjectId = projectRepository.addProject(
                     name = s.projectName.trim(),
                     localPath = localPath,
                     safUri = s.selectedFolderUri.toString(),
@@ -260,6 +261,17 @@ class ProjectsViewModel @Inject constructor(
                     branch = branch,
                     uriPermission = s.selectedFolderUri.toString()
                 )
+                // Immediately record the successful push so "Last Sync" shows correctly
+                val newProject = projectRepository.getProjectByIdOnce(newProjectId)
+                if (newProject != null) {
+                    projectRepository.updateProject(
+                        newProject.copy(
+                            lastSyncTime = System.currentTimeMillis(),
+                            lastCommitHash = commitHash,
+                            lastCommitMessage = "Initial sync via GitSync"
+                        )
+                    )
+                }
 
                 _state.value = _state.value.copy(
                     isAdding = false, setupStep = "",

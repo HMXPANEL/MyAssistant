@@ -38,7 +38,6 @@ class SyncWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val projectList = projectRepository.getAllProjects().first()
         var successCount = 0
-        var failCount = 0
         var hasRetryableFailure = false
         var hasPermanentFailure = false
 
@@ -51,82 +50,94 @@ class SyncWorker @AssistedInject constructor(
 
         for (project in projectList) {
             try {
-                val repoDir = File(project.localPath)
+                val repoDir = java.io.File(project.localPath)
                 if (!repoDir.exists()) {
                     hasPermanentFailure = true
                     continue
                 }
 
-                if (!gitRepository.isGitRepository(project.localPath)) {
-                    hasPermanentFailure = true
-                    continue
-                }
+                val gitDir = java.io.File(repoDir, ".git")
+                val useRestApi = !gitDir.exists()
 
-                val status = gitRepository.getSyncStatus(project.localPath)
-                if (status == SyncStatus.SYNCED) {
-                    successCount++
-                    continue
-                }
-
-                val hasChanges = gitRepository.hasChanges(project.localPath)
-                    .getOrDefault(false)
-
-                if (!hasChanges) {
-                    successCount++
-                    continue
-                }
-
-                gitRepository.addAll(project.localPath)
-                val hash = gitRepository.commit(
-                    project.localPath,
-                    "Auto-sync from GitSync [${System.currentTimeMillis()}]"
-                ).getOrThrow()
-
-                val currentBranch = gitRepository.getCurrentBranch(project.localPath)
-                    .getOrDefault(project.branch)
-
-                gitRepository.push(
-                    project.localPath,
-                    username,
-                    token,
-                    currentBranch
-                ).getOrThrow()
-
-                projectRepository.updateProject(
-                    project.copy(
-                        lastSyncTime = System.currentTimeMillis(),
-                        lastCommitHash = hash.take(7),
-                        lastCommitMessage = "Auto-sync from GitSync",
-                        branch = currentBranch
+                if (useRestApi) {
+                    // REST API path: re-push entire project via Git Tree API
+                    // This is safe — it creates a new commit on top of the existing HEAD
+                    val remoteUrl = "https://github.com/${project.repoOwner}/${project.repoName}.git"
+                    val result = gitRepository.setupAndPushProject(
+                        projectPath = project.localPath,
+                        remoteUrl = remoteUrl,
+                        username = username,
+                        token = token,
+                        branch = project.branch
                     )
-                )
+                    if (result.isSuccess) {
+                        val commitHash = result.getOrNull() ?: ""
+                        projectRepository.updateProject(
+                            project.copy(
+                                lastSyncTime = System.currentTimeMillis(),
+                                lastCommitHash = commitHash,
+                                lastCommitMessage = "Auto-sync from GitSync"
+                            )
+                        )
+                        successCount++
+                        showPushNotification(project.name, "Successfully synced to ${project.branch}")
+                    } else {
+                        val msg = result.exceptionOrNull()?.message ?: "Unknown error"
+                        hasPermanentFailure = true
+                        showPushNotification(project.name, "Sync failed: ${msg.take(100)}", isError = true)
+                    }
+                } else {
+                    // JGit fallback path for projects with local .git
+                    val status = gitRepository.getSyncStatus(project.localPath)
+                    if (status == SyncStatus.SYNCED) {
+                        successCount++
+                        continue
+                    }
 
-                successCount++
+                    val hasChanges = gitRepository.hasChanges(project.localPath).getOrDefault(false)
+                    if (!hasChanges) {
+                        successCount++
+                        continue
+                    }
 
-                showPushNotification(
-                    project.name,
-                    "Successfully pushed to $currentBranch"
-                )
+                    gitRepository.addAll(project.localPath)
+                    val hash = gitRepository.commit(
+                        project.localPath,
+                        "Auto-sync from GitSync [${System.currentTimeMillis()}]"
+                    ).getOrThrow()
+
+                    val currentBranch = gitRepository.getCurrentBranch(project.localPath)
+                        .getOrDefault(project.branch)
+
+                    gitRepository.push(project.localPath, username, token, currentBranch).getOrThrow()
+
+                    projectRepository.updateProject(
+                        project.copy(
+                            lastSyncTime = System.currentTimeMillis(),
+                            lastCommitHash = hash.take(7),
+                            lastCommitMessage = "Auto-sync from GitSync",
+                            branch = currentBranch
+                        )
+                    )
+                    successCount++
+                    showPushNotification(project.name, "Successfully pushed to $currentBranch")
+                }
             } catch (e: Exception) {
-                failCount++
-                when (e) {
-                    is UnknownHostException, is ConnectException -> {
+                val msg = e.message ?: ""
+                when {
+                    e is java.net.UnknownHostException || e is java.net.ConnectException -> {
+                        hasRetryableFailure = true
+                    }
+                    msg.contains("timeout", ignoreCase = true) -> {
                         hasRetryableFailure = true
                     }
                     else -> {
-                        val msg = e.message ?: ""
-                        if (msg.contains("timeout", ignoreCase = true) ||
-                            msg.contains("timed out", ignoreCase = true)
-                        ) {
-                            hasRetryableFailure = true
-                        } else {
-                            hasPermanentFailure = true
-                            showPushNotification(
-                                project.name,
-                                "Sync failed: ${e.message?.take(100) ?: "Unknown error"}",
-                                isError = true
-                            )
-                        }
+                        hasPermanentFailure = true
+                        showPushNotification(
+                            project.name,
+                            "Sync failed: ${msg.take(100)}",
+                            isError = true
+                        )
                     }
                 }
             }

@@ -127,6 +127,10 @@ class GitRepositoryImpl @Inject constructor(
     override suspend fun hasChanges(projectPath: String): Result<Boolean> {
         return try {
             val repoDir = File(projectPath)
+            val gitDir = File(repoDir, ".git")
+            // No local .git means REST API project — track changes by file modification times
+            if (!gitDir.exists()) return Result.success(false)
+            
             Git.open(repoDir).use { git ->
                 val status = git.status().call()
                 Result.success(!status.isClean)
@@ -319,8 +323,9 @@ class GitRepositoryImpl @Inject constructor(
         return try {
             val repoDir = File(projectPath)
             if (!repoDir.isDirectory) return SyncStatus.ERROR
+            // If no .git folder exists, this project uses REST API sync — no local changes possible
             val gitDir = File(repoDir, ".git")
-            if (!gitDir.exists()) return SyncStatus.ERROR
+            if (!gitDir.exists()) return SyncStatus.SYNCED
 
             Git.open(repoDir).use { git ->
                 val status: Status = git.status().call()
