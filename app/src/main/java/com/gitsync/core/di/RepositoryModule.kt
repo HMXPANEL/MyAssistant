@@ -1,5 +1,7 @@
 package com.gitsync.core.di
 
+import com.gitsync.core.network.GitHubApi
+import com.gitsync.core.security.SecureStorage
 import com.gitsync.data.repository.AuthRepositoryImpl
 import com.gitsync.data.repository.GitRepositoryImpl
 import com.gitsync.data.repository.ProjectRepositoryImpl
@@ -10,8 +12,8 @@ import com.gitsync.domain.repository.GitRepository
 import com.gitsync.domain.repository.ProjectRepository
 import com.gitsync.domain.repository.SettingsRepository
 import com.gitsync.domain.repository.WorkflowRepository
-import dagger.Binds
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
@@ -30,13 +32,18 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindGitRepository(impl: GitRepositoryImpl): GitRepository
-
-    @Binds
-    @Singleton
     abstract fun bindWorkflowRepository(impl: WorkflowRepositoryImpl): WorkflowRepository
 
     @Binds
     @Singleton
     abstract fun bindSettingsRepository(impl: SettingsRepositoryImpl): SettingsRepository
+
+    @Provides
+    @Singleton
+    fun provideGitRepository(
+        gitHubApi: GitHubApi,
+        secureStorage: SecureStorage
+    ): GitRepository {
+        return GitRepositoryImpl(gitHubApi, secureStorage)
+    }
 }

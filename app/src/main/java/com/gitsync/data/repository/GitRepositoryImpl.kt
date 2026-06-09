@@ -1,9 +1,15 @@
 package com.gitsync.data.repository
 
+import android.util.Base64
+import com.gitsync.core.network.GitHubApi
+import com.gitsync.core.security.SecureStorage
+import com.gitsync.data.remote.dto.CreateRepoRequestDto
+import com.gitsync.data.remote.dto.FileContentRequestDto
 import com.gitsync.domain.model.GitCommit
 import com.gitsync.domain.model.SyncStatus
 import com.gitsync.domain.repository.GitRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.Status
@@ -23,7 +29,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class GitRepositoryImpl @Inject constructor() : GitRepository {
+class GitRepositoryImpl @Inject constructor(
+    private val gitHubApi: GitHubApi,
+    private val secureStorage: SecureStorage
+) : GitRepository {
 
     override suspend fun isGitRepository(projectPath: String): Boolean {
         return try {
@@ -369,126 +378,126 @@ class GitRepositoryImpl @Inject constructor() : GitRepository {
         username: String,
         token: String,
         branch: String
-    ): Result<String> {
-        return try {
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
             val repoDir = File(projectPath)
-            
-            // Validate the path is accessible
-            if (!repoDir.exists()) {
-                repoDir.mkdirs()
-            }
+
+            // Validate access
+            if (!repoDir.exists()) repoDir.mkdirs()
             if (!repoDir.canRead()) {
-                return Result.failure(Exception(
-                    "Cannot read folder. Grant 'All Files Access' in:\n" +
-                    "Settings > Apps > GitSync > Permissions > Files and media > Allow management of all files"
-                ))
-            }
-            if (!repoDir.canWrite()) {
-                return Result.failure(Exception(
-                    "Cannot write to folder. Grant 'All Files Access' in:\n" +
-                    "Settings > Apps > GitSync > Permissions > Files and media"
+                return@withContext Result.failure(Exception(
+                    "Cannot read folder.\n" +
+                    "Go to: Settings > Apps > GitSync > Permissions\n" +
+                    "Enable: Files and media > Allow management of all files"
                 ))
             }
 
-            // Step 1: Init or open repo
-            val isExistingRepo = File(repoDir, ".git").exists()
-            val git = if (isExistingRepo) {
-                Git.open(repoDir)
-            } else {
-                Git.init().setDirectory(repoDir).call()
+            // Parse owner/repo from URL: https://github.com/{owner}/{repo}.git
+            val urlParts = remoteUrl
+                .removePrefix("https://github.com/")
+                .removeSuffix(".git")
+                .split("/")
+            if (urlParts.size < 2) {
+                return@withContext Result.failure(Exception("Invalid repository URL: $remoteUrl"))
             }
+            val owner = urlParts[0]
+            val repo = urlParts[1]
 
-            git.use { g ->
-                // Step 2: Set or update remote
-                val remotes = g.remoteList().call()
-                val hasOrigin = remotes.any { it.name == "origin" }
-                if (hasOrigin) {
-                    g.remoteSetUrl()
-                        .setRemoteName("origin")
-                        .setRemoteUri(URIish(remoteUrl))
-                        .call()
-                } else {
-                    g.remoteAdd()
-                        .setName("origin")
-                        .setUri(URIish(remoteUrl))
-                        .call()
-                }
-
-                // Step 3: Stage all files
-                g.add().addFilepattern(".").call()
-
-                // Step 4: Also stage deletions
-                g.add().addFilepattern(".").setUpdate(true).call()
-
-                // Step 5: Check if anything was staged
-                val status = g.status().call()
-                val hasAnythingToCommit = !status.isClean ||
-                    status.added.isNotEmpty() ||
-                    status.modified.isNotEmpty() ||
-                    status.untracked.isNotEmpty()
-
-                val commitHash = if (hasAnythingToCommit) {
-                    val commit = g.commit()
-                        .setMessage("Initial commit from GitSync")
-                        .setAuthor(username.ifBlank { "GitSync" }, "gitsync@local.dev")
-                        .call()
-                    commit.name
-                } else {
-                    // Repo is clean — check if there are existing commits to push
+            // Step 1: Create GitHub repo if it doesn't exist
+            try {
+                gitHubApi.getRepository(owner, repo)
+                // Repo exists — continue
+            } catch (e: Exception) {
+                // 404 = doesn't exist, create it
+                if (e.message?.contains("404") == true ||
+                    e.message?.contains("Not Found", ignoreCase = true) == true) {
                     try {
-                        val logs = g.log().setMaxCount(1).call().toList()
-                        if (logs.isEmpty()) {
-                            // Truly empty repo — create a README and commit it
-                            val readme = File(repoDir, "README.md")
-                            if (!readme.exists()) {
-                                readme.writeText("# ${repoDir.name}\n\nCreated by GitSync")
-                            }
-                            g.add().addFilepattern("README.md").call()
-                            val commit = g.commit()
-                                .setMessage("Initial commit from GitSync")
-                                .setAuthor(username.ifBlank { "GitSync" }, "gitsync@local.dev")
-                                .call()
-                            commit.name
-                        } else {
-                            logs[0].name
-                        }
-                    } catch (_: Exception) {
-                        // org.eclipse.jgit.api.errors.NoHeadException — totally empty repo
-                        val readme = File(repoDir, "README.md")
-                        if (!readme.exists()) {
-                            readme.writeText("# ${repoDir.name}\n\nCreated by GitSync")
-                        }
-                        g.add().addFilepattern("README.md").call()
-                        val commit = g.commit()
-                            .setMessage("Initial commit from GitSync")
-                            .setAuthor(username.ifBlank { "GitSync" }, "gitsync@local.dev")
-                            .call()
-                        commit.name
+                        gitHubApi.createRepository(
+                            CreateRepoRequestDto(
+                                name = repo,
+                                description = "Synced by GitSync",
+                                isPrivate = false
+                            )
+                        )
+                        // Give GitHub 1 second to initialize
+                        delay(1000)
+                    } catch (createEx: Exception) {
+                        return@withContext Result.failure(Exception(
+                            "Could not create repository '$owner/$repo' on GitHub.\n" +
+                            "Check your token has 'repo' scope.\nError: ${createEx.message}"
+                        ))
                     }
                 }
-
-                // Step 6: Push
-                val credentials = UsernamePasswordCredentialsProvider(username, token)
-                g.push()
-                    .setCredentialsProvider(credentials)
-                    .setRemote("origin")
-                    .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
-                    .call()
-
-                Result.success(commitHash)
+                // Other errors (auth etc.) — continue anyway, push will surface them
             }
-        } catch (e: org.eclipse.jgit.api.errors.TransportException) {
-            val msg = e.message ?: ""
-            when {
-                msg.contains("401") || msg.contains("not authorized", ignoreCase = true) ->
-                    Result.failure(Exception("Push failed: Invalid GitHub token. Check your PAT has 'repo' scope."))
-                msg.contains("not found", ignoreCase = true) || msg.contains("404") ->
-                    Result.failure(Exception("Push failed: Repository not found on GitHub. Create it first or check owner/name."))
-                else ->
-                    Result.failure(Exception("Push failed: ${e.message}"))
+
+            // Step 2: Collect all files from the folder (skip .git, skip binaries > 50MB)
+            val filesToPush = mutableListOf<File>()
+            repoDir.walkTopDown()
+                .filter { it.isFile }
+                .filter { file ->
+                    val rel = file.relativeTo(repoDir).path
+                    !rel.startsWith(".git") &&
+                    !rel.startsWith(".gradle") &&
+                    !rel.startsWith("build/") &&
+                    !rel.startsWith(".idea/") &&
+                    file.length() < 50 * 1024 * 1024
+                }
+                .forEach { filesToPush.add(it) }
+
+            // Step 3: If folder is empty, create a README
+            if (filesToPush.isEmpty()) {
+                val readme = File(repoDir, "README.md")
+                readme.writeText("# $repo\n\nCreated by GitSync")
+                filesToPush.add(readme)
             }
+
+            // Step 4: Push each file via GitHub Contents API
+            var lastCommitSha = ""
+            var pushedCount = 0
+            for (file in filesToPush) {
+                try {
+                    val relativePath = file.relativeTo(repoDir).path
+                        .replace("\\", "/")
+
+                    val fileBytes = file.readBytes()
+                    val base64Content = Base64.encodeToString(fileBytes, Base64.NO_WRAP)
+
+                    // Check if file already exists (get its SHA for update)
+                    val existingSha: String? = try {
+                        gitHubApi.getFileContent(owner, repo, relativePath).content?.sha
+                    } catch (_: Exception) { null }
+
+                    val response = gitHubApi.putFileContent(
+                        owner = owner,
+                        repo = repo,
+                        path = relativePath,
+                        request = FileContentRequestDto(
+                            message = "Sync: $relativePath",
+                            content = base64Content,
+                            sha = existingSha,
+                            branch = branch
+                        )
+                    )
+                    lastCommitSha = response.commit?.sha ?: lastCommitSha
+                    pushedCount++
+                } catch (fileEx: Exception) {
+                    // Log but continue — don't fail entire push for one bad file
+                    android.util.Log.w("GitSync",
+                        "Skipped ${file.name}: ${fileEx.message}")
+                }
+            }
+
+            if (pushedCount == 0) {
+                return@withContext Result.failure(Exception(
+                    "No files could be pushed. Check your internet connection and GitHub token permissions."
+                ))
+            }
+
+            Result.success(lastCommitSha.take(7).ifBlank { "pushed" })
+
         } catch (e: Exception) {
-            Result.failure(Exception("Setup failed: ${e.message}"))
+            Result.failure(Exception("Push failed: ${e.message}"))
         }
     }
 }

@@ -2,6 +2,8 @@ package com.gitsync.core.network
 
 import com.gitsync.data.remote.dto.ArtifactDto
 import com.gitsync.data.remote.dto.CreateRepoRequestDto
+import com.gitsync.data.remote.dto.FileContentRequestDto
+import com.gitsync.data.remote.dto.FileContentResponseDto
 import com.gitsync.data.remote.dto.GitHubUserDto
 import com.gitsync.data.remote.dto.RepoDto
 import com.gitsync.data.remote.dto.WorkflowRunDto
@@ -9,9 +11,11 @@ import com.gitsync.data.remote.dto.WorkflowRunsResponse
 import com.gitsync.data.remote.dto.ArtifactsResponse
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Headers
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -73,4 +77,19 @@ interface GitHubApi {
         @Path("owner") owner: String,
         @Path("repo") repo: String
     ): Response<RepoDto>
+
+    @GET("repos/{owner}/{repo}/contents/{path}")
+    suspend fun getFileContent(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("path", encoded = true) path: String
+    ): FileContentResponseDto
+
+    @PUT("repos/{owner}/{repo}/contents/{path}")
+    suspend fun putFileContent(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("path", encoded = true) path: String,
+        @Body request: FileContentRequestDto
+    ): FileContentResponseDto
 }
