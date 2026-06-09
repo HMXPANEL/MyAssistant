@@ -37,7 +37,6 @@ import java.net.ConnectException
 import java.net.UnknownHostException
 import javax.inject.Inject
 import javax.inject.Singleton
-import android.util.Base64
 import retrofit2.HttpException
 
 @Singleton
