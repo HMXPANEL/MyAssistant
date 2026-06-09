@@ -39,8 +39,6 @@ abstract class RepositoryModule {
     @Singleton
     abstract fun bindSettingsRepository(impl: SettingsRepositoryImpl): SettingsRepository
 
-    @Module
-    @InstallIn(SingletonComponent::class)
     companion object {
         @Provides
         @Singleton
