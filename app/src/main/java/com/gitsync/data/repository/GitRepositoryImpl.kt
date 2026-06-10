@@ -416,7 +416,7 @@ class GitRepositoryImpl @Inject constructor(
                 return@withContext Result.failure(Exception("Invalid URL: $remoteUrl"))
             }
             val owner = urlParts[0]
-            val repo  = urlParts[1]
+            val repo  = urlParts[1].lowercase() // GitHub repo names are case-insensitive; normalize to avoid 404s
 
             // Step 1: Create repo if it doesn't exist
             var repoIsNew = false
@@ -535,13 +535,14 @@ class GitRepositoryImpl @Inject constructor(
                                 synchronized(treeEntries) {
                                     treeEntries.add(TreeEntryDto(path = rel, sha = blobResp.sha))
                                 }
-                            } catch (e: HttpException) {
-                                lastBlobError = e
-                                android.util.Log.e("GitSync", "Blob failed ${file.name}: ${e.code()}")
-                            } catch (e: Exception) {
-                                lastBlobError = e
-                                android.util.Log.e("GitSync", "Blob failed ${file.name}: ${e.message}")
-                            }
+                        } catch (e: HttpException) {
+                            lastBlobError = e
+                            val errBody = runCatching { e.response()?.errorBody()?.string() }.getOrNull() ?: ""
+                            android.util.Log.e("GitSync", "Blob failed ${file.name}: HTTP ${e.code()} | owner=$owner repo=$repo | $errBody")
+                        } catch (e: Exception) {
+                            lastBlobError = e
+                            android.util.Log.e("GitSync", "Blob failed ${file.name}: ${e.message} | owner=$owner repo=$repo")
+                        }
                         }
                     }.awaitAll()
                 }
@@ -620,15 +621,16 @@ class GitRepositoryImpl @Inject constructor(
             val code = e.code()
             val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull() ?: ""
             when (code) {
-                401 -> Result.failure(Exception("GitHub auth failed (401). Check your Personal Access Token."))
+                401 -> Result.failure(Exception("GitHub auth failed (401). Check your Personal Access Token in Settings."))
                 403 -> Result.failure(Exception("Access forbidden (403). Ensure PAT has 'repo' scope."))
-                404 -> Result.failure(Exception("Repository not found (404). Check owner/repo name."))
+                404 -> Result.failure(Exception("GitHub API error (404): A resource was not found. This may be a repo name case mismatch. Try using all-lowercase repo name.\nDetails: $body"))
                 409 -> Result.failure(Exception("Repository not ready (409). Wait a moment and try again."))
                 422 -> Result.failure(Exception("GitHub rejected request (422): $body"))
                 else -> Result.failure(Exception("GitHub error $code: $body"))
             }
         } catch (e: Exception) {
-            Result.failure(Exception("Push failed: ${e.message}"))
+            val msg = e.message ?: "Unknown error"
+            Result.failure(Exception("Push failed: $msg"))
         }
     }
 }

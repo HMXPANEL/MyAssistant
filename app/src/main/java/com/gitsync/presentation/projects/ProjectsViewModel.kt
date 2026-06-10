@@ -91,12 +91,12 @@ class ProjectsViewModel @Inject constructor(
     }
 
     fun onFolderSelected(uri: Uri) {
-        val name = SafUriHelper.getDirectoryName(application, uri)
+                val name = SafUriHelper.getDirectoryName(application, uri)
 
         _state.value = _state.value.copy(
             selectedFolderUri = uri,
             projectName = name,
-            repoName = name.lowercase().replace(" ", "-"),
+            repoName = name.replace(" ", "-").replace("[^a-zA-Z0-9._-]".toRegex(), ""),
             error = null
         )
     }
