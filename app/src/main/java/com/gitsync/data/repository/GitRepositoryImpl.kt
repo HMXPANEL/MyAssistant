@@ -5,6 +5,7 @@ import com.gitsync.core.network.GitHubApi
 import com.gitsync.core.security.SecureStorage
 import com.gitsync.data.remote.dto.CreateBlobRequestDto
 import com.gitsync.data.remote.dto.CreateCommitRequestDto
+import com.gitsync.data.remote.dto.CreateRefRequestDto
 import com.gitsync.data.remote.dto.CreateRepoRequestDto
 import com.gitsync.data.remote.dto.CreateTreeRequestDto
 import com.gitsync.data.remote.dto.FileContentRequestDto
@@ -12,6 +13,7 @@ import com.gitsync.data.remote.dto.RefObjectDto
 import com.gitsync.data.remote.dto.RefResponseDto
 import com.gitsync.data.remote.dto.TreeEntryDto
 import com.gitsync.data.remote.dto.UpdateRefRequestDto
+import kotlinx.coroutines.runCatching
 import com.gitsync.domain.model.GitCommit
 import com.gitsync.domain.model.SyncStatus
 import com.gitsync.domain.repository.GitRepository
@@ -416,11 +418,12 @@ class GitRepositoryImpl @Inject constructor(
             val owner = urlParts[0]
             val repo  = urlParts[1]
 
+            // Step 1: Create repo if it doesn't exist
+            var repoIsNew = false
             try {
                 gitHubApi.getRepository(owner, repo)
-            } catch (e: Exception) {
-                if (e.message?.contains("404") == true ||
-                    e.message?.contains("Not Found", ignoreCase = true) == true) {
+            } catch (e: HttpException) {
+                if (e.code() == 404) {
                     try {
                         gitHubApi.createRepository(
                             CreateRepoRequestDto(
@@ -429,16 +432,69 @@ class GitRepositoryImpl @Inject constructor(
                                 isPrivate = false
                             )
                         )
-                        delay(1500)
-                    } catch (ce: Exception) {
+                        repoIsNew = true
+                        delay(2000) // GitHub needs time to provision the Git DB
+                    } catch (ce: HttpException) {
                         return@withContext Result.failure(Exception(
                             "Could not create repo '$owner/$repo'.\n" +
-                            "Ensure your PAT has 'repo' scope.\nError: ${ce.message}"
+                            "Ensure your PAT has 'repo' scope.\nError: ${ce.code()}"
                         ))
                     }
                 }
             }
 
+            // Step 2: Check if repo has any existing commits (could be pre-existing empty repo)
+            val existingParentSha: String? = try {
+                gitHubApi.getRef(owner, repo, branch).refObject?.sha
+            } catch (e: HttpException) {
+                if (e.code() == 404 || e.code() == 409) null else throw e
+            } catch (_: Exception) {
+                null
+            }
+
+            val repoHasNoCommits = existingParentSha == null
+
+            // Step 3: If repo has no commits at all (new or pre-existing empty),
+            // we MUST create an initial commit via Contents API first.
+            // The Git Tree API (createBlob/createTree) returns 409 on repos with no commits.
+            val initialCommitSha: String? = if (repoHasNoCommits) {
+                try {
+                    // Use Contents API to create README - this initializes the Git DB
+                    val readmeContent = android.util.Base64.encodeToString(
+                        "# $repo\n\nSynced by GitSync".toByteArray(),
+                        android.util.Base64.NO_WRAP
+                    )
+                    val result = gitHubApi.putFileContent(
+                        owner, repo, "README.md",
+                        com.gitsync.data.remote.dto.FileContentRequestDto(
+                            message = "Initial commit via GitSync",
+                            content = readmeContent,
+                            sha = null
+                        )
+                    )
+                    delay(1000) // Give GitHub time to update the ref
+                    result.commit?.sha
+                } catch (e: Exception) {
+                    android.util.Log.w("GitSync", "Initial README commit failed: ${e.message}")
+                    null
+                }
+            } else null
+
+            // Step 4: Get the current HEAD sha (after potential initial commit)
+            val parentSha: String? = initialCommitSha ?: existingParentSha ?: try {
+                gitHubApi.getRef(owner, repo, branch).refObject?.sha
+            } catch (_: Exception) { null }
+
+            // If repo has no commits and we failed to create initial commit, we cannot proceed
+            // because Git Tree API (createBlob/createTree) returns 409 on repos with no commits
+            if (repoHasNoCommits && initialCommitSha == null && parentSha == null) {
+                return@withContext Result.failure(Exception(
+                    "Repository is empty and failed to initialize. " +
+                    "Please delete the GitHub repo and try again, or ensure your PAT has 'repo' scope."
+                ))
+            }
+
+            // Step 5: Collect files to push
             val filesToPush = repoDir.walkTopDown()
                 .filter { it.isFile }
                 .filter { file ->
@@ -453,166 +509,121 @@ class GitRepositoryImpl @Inject constructor(
                     file.length() < 5 * 1024 * 1024
                 }
                 .toList()
-                .let { files ->
-                    if (files.isEmpty()) {
-                        val readme = File(repoDir, "README.md")
-                        readme.writeText("# $repo\n\nCreated by GitSync")
-                        listOf(readme)
-                    } else files
-                }
 
+            if (filesToPush.isEmpty()) {
+                // Nothing to push — the README we created counts as the sync
+                return@withContext Result.success(parentSha?.take(7) ?: "empty")
+            }
+
+            // Step 6: Upload blobs in chunks of 20 (rate limit protection)
             val treeEntries = mutableListOf<TreeEntryDto>()
-
             var lastBlobError: Exception? = null
-            var blobSuccessCount = 0
 
-            val syncStartTime = System.currentTimeMillis()
-            val scanStartTime = System.currentTimeMillis()
-
-            val ignoredFiles = mutableListOf<String>()
-            repoDir.walkTopDown().filter { it.isFile }.forEach { file ->
-                val rel = file.relativeTo(repoDir).path.replace("\\", "/")
-                if (rel.startsWith(".git/") ||
-                    rel.startsWith(".gradle/") ||
-                    rel.startsWith("build/") ||
-                    rel.startsWith(".idea/") ||
-                    rel.startsWith("captures/") ||
-                    rel.endsWith(".class") ||
-                    rel.endsWith(".dex") ||
-                    file.length() >= 5 * 1024 * 1024) {
-                    ignoredFiles.add(rel)
+            for (chunk in filesToPush.chunked(20)) {
+                coroutineScope {
+                    chunk.map { file ->
+                        async {
+                            try {
+                                val rel = file.relativeTo(repoDir).path.replace("\\", "/")
+                                val base64 = android.util.Base64.encodeToString(
+                                    file.readBytes(), android.util.Base64.NO_WRAP
+                                )
+                                val blobResp = gitHubApi.createBlob(
+                                    owner, repo,
+                                    CreateBlobRequestDto(content = base64, encoding = "base64")
+                                )
+                                synchronized(treeEntries) {
+                                    treeEntries.add(TreeEntryDto(path = rel, sha = blobResp.sha))
+                                }
+                            } catch (e: HttpException) {
+                                lastBlobError = e
+                                android.util.Log.e("GitSync", "Blob failed ${file.name}: ${e.code()}")
+                            } catch (e: Exception) {
+                                lastBlobError = e
+                                android.util.Log.e("GitSync", "Blob failed ${file.name}: ${e.message}")
+                            }
+                        }
+                    }.awaitAll()
                 }
             }
-
-            val scanDuration = System.currentTimeMillis() - scanStartTime
-            android.util.Log.i("GitSync", "Folder scan: ${filesToPush.size} files to upload, ${ignoredFiles.size} ignored, took ${scanDuration}ms")
-
-            val blobStartTime = System.currentTimeMillis()
-            var apiRequestCount = 0
-
-            coroutineScope {
-                filesToPush.map { file ->
-                    async {
-                        try {
-                            val rel = file.relativeTo(repoDir).path.replace("\\", "/")
-                            val base64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
-                            val blobResp = gitHubApi.createBlob(
-                                owner, repo,
-                                CreateBlobRequestDto(
-                                    content = base64,
-                                    encoding = "base64"
-                                )
-                            )
-                            synchronized(treeEntries) {
-                                treeEntries.add(
-                                    TreeEntryDto(
-                                        path = rel,
-                                        sha = blobResp.sha
-                                    )
-                                )
-                                blobSuccessCount++
-                                apiRequestCount++
-                            }
-                        } catch (e: HttpException) {
-                            lastBlobError = e
-                            apiRequestCount++
-                            android.util.Log.e("GitSync", "Blob create failed for ${file.name}: ${e.code()} ${e.message}")
-                        } catch (e: Exception) {
-                            lastBlobError = e
-                            android.util.Log.e("GitSync", "Blob create failed for ${file.name}: ${e.message}")
-                        }
-                    }
-                }.awaitAll()
-            }
-
-            val blobDuration = System.currentTimeMillis() - blobStartTime
-            android.util.Log.i("GitSync", "Blob creation: $blobSuccessCount/${filesToPush.size} succeeded, ${blobDuration}ms, $apiRequestCount API requests")
 
             if (treeEntries.isEmpty()) {
-                val errorMessage = when {
-                    filesToPush.isEmpty() -> "No files to upload. Project may only contain build artifacts or excluded directories."
-                    blobSuccessCount == 0 && lastBlobError != null -> {
-                        val cause = lastBlobError!!
-                        when (cause) {
-                            is HttpException -> when (cause.code()) {
-                                401 -> "Authentication failed (401). Check your Personal Access Token."
-                                403 -> "Access forbidden (403). Ensure PAT has 'repo' scope."
-                                404 -> "Repository not found (404). Check owner/repo name."
-                                422 -> "GitHub rejected request (422): ${cause.response()?.errorBody()?.string() ?: cause.message}"
-                                else -> "GitHub error ${cause.code()}: ${cause.response()?.errorBody()?.string() ?: cause.message}"
-                            }
-                            is UnknownHostException -> "No internet connection. Check your network."
-                            is ConnectException -> "Cannot connect to GitHub. Check your internet connection."
-                            else -> "Failed to upload files: ${cause.message}"
-                        }
+                val msg = when (val err = lastBlobError) {
+                    is HttpException -> when (err.code()) {
+                        401 -> "Authentication failed (401). Check your Personal Access Token."
+                        403 -> "Access forbidden (403). Ensure PAT has 'repo' scope."
+                        409 -> "GitHub error 409: Repository initialization failed. Please delete the GitHub repo and try again."
+                        else -> "GitHub error ${err.code()}: ${err.response()?.errorBody()?.string() ?: err.message}"
                     }
-                    else -> "No files could be uploaded. Check internet connection and token permissions."
+                    null -> "No uploadable files found. Project may only contain build artifacts."
+                    else -> "Upload failed: ${err.message}"
                 }
-                return@withContext Result.failure(Exception(errorMessage))
+                return@withContext Result.failure(Exception(msg))
             }
 
-            val parentSha: String? = try {
-                gitHubApi.getRef(owner, repo, branch).refObject?.sha
-            } catch (e: HttpException) {
-                if (e.code() == 404) null else throw e
-            } catch (_: Exception) {
-                null
-            }
-
-            val isEmptyRepo = parentSha == null
-
-            val treeStartTime = System.currentTimeMillis()
+            // Step 7: Create tree
             val treeResp = gitHubApi.createTree(
                 owner, repo,
                 CreateTreeRequestDto(
-                    baseTree = if (isEmptyRepo) null else parentSha,
+                    baseTree = parentSha, // null = new tree from scratch
                     tree = treeEntries
                 )
             )
-            val treeDuration = System.currentTimeMillis() - treeStartTime
-            apiRequestCount++
-            android.util.Log.i("GitSync", "Tree creation: ${treeDuration}ms, API requests: $apiRequestCount")
 
-            val commitStartTime = System.currentTimeMillis()
+            // Step 8: Create commit
             val commitResp = gitHubApi.createCommit(
                 owner, repo,
                 CreateCommitRequestDto(
-                    message = if (isEmptyRepo) "Initial commit via GitSync" else "Sync from GitSync\n\n${treeEntries.size} files uploaded",
+                    message = "Sync from GitSync\n\n${treeEntries.size} files",
                     tree = treeResp.sha,
                     parents = if (parentSha != null) listOf(parentSha) else emptyList()
                 )
             )
-            val commitDuration = System.currentTimeMillis() - commitStartTime
-            apiRequestCount++
-            android.util.Log.i("GitSync", "Commit creation: ${commitDuration}ms, API requests: $apiRequestCount")
 
-            val refStartTime = System.currentTimeMillis()
+            // Step 9: Create or update the branch ref
+            // New repo (no prior ref) = POST to CREATE. Existing repo = PATCH to UPDATE.
             try {
-                gitHubApi.updateRef(owner, repo, branch,
-                    UpdateRefRequestDto(
-                        sha = commitResp.sha,
-                        force = true
+                if (repoHasNoCommits && initialCommitSha == null) {
+                    // Truly brand new ref — create it
+                    gitHubApi.createRef(
+                        owner, repo,
+                        CreateRefRequestDto(
+                            ref = "refs/heads/$branch",
+                            sha = commitResp.sha
+                        )
                     )
-                )
-            } catch (e: Exception) {
-                android.util.Log.w("GitSync", "updateRef: ${e.message}")
+                } else {
+                    // Ref exists — update it
+                    gitHubApi.updateRef(owner, repo, branch,
+                        UpdateRefRequestDto(sha = commitResp.sha, force = true)
+                    )
+                }
+            } catch (e: HttpException) {
+                // 422 = ref already exists (race condition) — try update instead
+                if (e.code() == 422) {
+                    try {
+                        gitHubApi.updateRef(owner, repo, branch,
+                            UpdateRefRequestDto(sha = commitResp.sha, force = true)
+                        )
+                    } catch (ue: Exception) {
+                        android.util.Log.w("GitSync", "updateRef fallback failed: ${ue.message}")
+                    }
+                } else {
+                    android.util.Log.w("GitSync", "ref operation failed: ${e.code()} ${e.message}")
+                }
             }
-            val refDuration = System.currentTimeMillis() - refStartTime
-            apiRequestCount++
-            android.util.Log.i("GitSync", "Ref update: ${refDuration}ms, API requests: $apiRequestCount")
 
-            val totalDuration = System.currentTimeMillis() - syncStartTime
-            android.util.Log.i("GitSync", "Total sync: ${totalDuration}ms, Files: ${treeEntries.size}, Total API requests: $apiRequestCount")
-
+            android.util.Log.i("GitSync", "Push complete: ${treeEntries.size} files, commit ${commitResp.sha.take(7)}")
             Result.success(commitResp.sha.take(7))
 
         } catch (e: HttpException) {
             val code = e.code()
-            val body = e.response()?.errorBody()?.string() ?: ""
+            val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull() ?: ""
             when (code) {
                 401 -> Result.failure(Exception("GitHub auth failed (401). Check your Personal Access Token."))
                 403 -> Result.failure(Exception("Access forbidden (403). Ensure PAT has 'repo' scope."))
                 404 -> Result.failure(Exception("Repository not found (404). Check owner/repo name."))
+                409 -> Result.failure(Exception("Repository not ready (409). Wait a moment and try again."))
                 422 -> Result.failure(Exception("GitHub rejected request (422): $body"))
                 else -> Result.failure(Exception("GitHub error $code: $body"))
             }

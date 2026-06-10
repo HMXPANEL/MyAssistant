@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -32,12 +33,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.SurfaceDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
@@ -197,13 +200,18 @@ fun ProjectDetailScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Card(
-                            onClick = { viewModel.pushNow() },
-                            modifier = Modifier.weight(1f),
-                            enabled = state.isGitRepo && !state.isPushing && !state.isPulling,
-                            colors = CardDefaults.cardColors(
+                        val pushEnabled = state.isGitRepo && !state.isPushing && !state.isPulling
+                        val pullEnabled = state.isGitRepo && !state.isPushing && !state.isPulling
+
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.medium),
+                            colors = SurfaceDefaults.colors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                            )
+                            ),
+                            onClick = if (pushEnabled) { viewModel.pushNow() } else null
                         ) {
                             Column(
                                 modifier = Modifier
@@ -220,24 +228,27 @@ fun ProjectDetailScreen(
                                     Icon(
                                         Icons.Default.CloudUpload,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
+                                        tint = if (pushEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     "Push Now",
-                                    style = MaterialTheme.typography.labelMedium
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (pushEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                 )
                             }
                         }
 
-                        Card(
-                            onClick = { viewModel.pullNow() },
-                            modifier = Modifier.weight(1f),
-                            enabled = state.isGitRepo && !state.isPushing && !state.isPulling,
-                            colors = CardDefaults.cardColors(
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.medium),
+                            colors = SurfaceDefaults.colors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            )
+                            ),
+                            onClick = if (pullEnabled) { viewModel.pullNow() } else null
                         ) {
                             Column(
                                 modifier = Modifier
@@ -254,13 +265,14 @@ fun ProjectDetailScreen(
                                     Icon(
                                         Icons.Default.CloudDownload,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        tint = if (pullEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     "Pull",
-                                    style = MaterialTheme.typography.labelMedium
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (pullEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                 )
                             }
                         }

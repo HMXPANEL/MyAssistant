@@ -52,3 +52,8 @@ data class RefResponseDto(
 data class RefObjectDto(
     val sha: String = ""
 )
+
+data class CreateRefRequestDto(
+    val ref: String,
+    val sha: String
+)

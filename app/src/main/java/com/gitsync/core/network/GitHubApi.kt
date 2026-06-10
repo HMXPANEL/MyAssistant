@@ -129,4 +129,11 @@ interface GitHubApi {
         @Path("branch") branch: String,
         @Body request: com.gitsync.data.remote.dto.UpdateRefRequestDto
     ): com.gitsync.data.remote.dto.RefResponseDto
+
+    @POST("repos/{owner}/{repo}/git/refs")
+    suspend fun createRef(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Body request: com.gitsync.data.remote.dto.CreateRefRequestDto
+    ): com.gitsync.data.remote.dto.RefResponseDto
 }
