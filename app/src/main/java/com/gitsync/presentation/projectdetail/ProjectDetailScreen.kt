@@ -205,8 +205,8 @@ fun ProjectDetailScreen(
                         Card(
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxWidth(),
-                            onClick = if (pushEnabled) { viewModel.pushNow() } else null,
+                                .fillMaxWidth()
+                                .clickable(enabled = pushEnabled) { viewModel.pushNow() },
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                             ),
@@ -242,8 +242,8 @@ fun ProjectDetailScreen(
                         Card(
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxWidth(),
-                            onClick = if (pullEnabled) { viewModel.pullNow() } else null,
+                                .fillMaxWidth()
+                                .clickable(enabled = pullEnabled) { viewModel.pullNow() },
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                             ),
