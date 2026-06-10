@@ -13,7 +13,7 @@ import com.gitsync.data.remote.dto.RefObjectDto
 import com.gitsync.data.remote.dto.RefResponseDto
 import com.gitsync.data.remote.dto.TreeEntryDto
 import com.gitsync.data.remote.dto.UpdateRefRequestDto
-import kotlinx.coroutines.runCatching
+import kotlin.runCatching
 import com.gitsync.domain.model.GitCommit
 import com.gitsync.domain.model.SyncStatus
 import com.gitsync.domain.repository.GitRepository

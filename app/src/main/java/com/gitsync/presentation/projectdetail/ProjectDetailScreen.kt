@@ -34,7 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SurfaceDefaults
+import androidx.compose.foundation.shape.clip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.remember
@@ -203,15 +203,15 @@ fun ProjectDetailScreen(
                         val pushEnabled = state.isGitRepo && !state.isPushing && !state.isPulling
                         val pullEnabled = state.isGitRepo && !state.isPushing && !state.isPulling
 
-                        Surface(
+                        Card(
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxWidth()
-                                .clip(MaterialTheme.shapes.medium),
-                            colors = SurfaceDefaults.colors(
+                                .fillMaxWidth(),
+                            onClick = if (pushEnabled) { viewModel.pushNow() } else null,
+                            colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                             ),
-                            onClick = if (pushEnabled) { viewModel.pushNow() } else null
+                            shape = MaterialTheme.shapes.medium
                         ) {
                             Column(
                                 modifier = Modifier
@@ -240,15 +240,15 @@ fun ProjectDetailScreen(
                             }
                         }
 
-                        Surface(
+                        Card(
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxWidth()
-                                .clip(MaterialTheme.shapes.medium),
-                            colors = SurfaceDefaults.colors(
+                                .fillMaxWidth(),
+                            onClick = if (pullEnabled) { viewModel.pullNow() } else null,
+                            colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                             ),
-                            onClick = if (pullEnabled) { viewModel.pullNow() } else null
+                            shape = MaterialTheme.shapes.medium
                         ) {
                             Column(
                                 modifier = Modifier
