@@ -46,7 +46,7 @@ class SyncWorker @AssistedInject constructor(
         val username = authRepository.getUsername()
         val token = authRepository.getToken()
 
-        if (token.isBlank()) return Result.failure()
+        if (token.isBlank()) return Result.retry()
 
         for (project in projectList) {
             try {

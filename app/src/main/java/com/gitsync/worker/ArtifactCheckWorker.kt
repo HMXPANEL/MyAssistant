@@ -37,7 +37,7 @@ class ArtifactCheckWorker @AssistedInject constructor(
         if (projectList.isEmpty()) return Result.success()
 
         val token = authRepository.getToken()
-        if (token.isBlank()) return Result.failure()
+        if (token.isBlank()) return Result.retry()
 
         for (project in projectList) {
             try {

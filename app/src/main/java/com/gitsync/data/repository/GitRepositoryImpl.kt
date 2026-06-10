@@ -481,9 +481,9 @@ class GitRepositoryImpl @Inject constructor(
             } else null
 
             // Step 4: Get the current HEAD sha (after potential initial commit)
-            val parentSha: String? = initialCommitSha ?: existingParentSha ?: try {
+            val parentSha: String? = initialCommitSha ?: existingParentSha ?: runCatching {
                 gitHubApi.getRef(owner, repo, branch).refObject?.sha
-            } catch (_: Exception) { null }
+            }.getOrNull()
 
             // If repo has no commits and we failed to create initial commit, we cannot proceed
             // because Git Tree API (createBlob/createTree) returns 409 on repos with no commits

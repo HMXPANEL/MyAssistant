@@ -57,12 +57,10 @@ class ProjectDetailViewModel @Inject constructor(
             projectRepository.getProjectById(projectId).collect { project ->
                 if (project != null) {
                     val projectDir = java.io.File(project.localPath)
-                    val hasReadPermission = projectDir.canRead()
-                    val isRepo = if (!hasReadPermission) false
-                                 else gitRepository.isGitRepository(project.localPath)
+                    val isRepo = gitRepository.isGitRepository(project.localPath)
 
                     // Store permission error to show correct message in UI
-                    val permissionError = if (!hasReadPermission)
+                    val permissionError = if (!projectDir.canRead())
                         "Storage permission denied. Grant 'All Files Access' in Settings > Apps > GitSync > Permissions."
                     else null
 
