@@ -494,14 +494,14 @@ class GitRepositoryImpl @Inject constructor(
                 }
             }
 
-            // Step 4: Get HEAD SHA — retry up to 5 times because GitHub needs
-            // a moment to update the ref after the initial commit.
+            // Step 4: Get HEAD SHA — retry up to 8 times because GitHub needs
+            // a moment to update the ref after the initial commit (new repos can take ~5s).
             // Using a while loop (not repeat) so we can break immediately when SHA is found.
             var parentSha: String? = existingParentSha
             if (parentSha == null) {
                 var attempt = 0
-                while (attempt < 5 && parentSha == null) {
-                    delay(1500)
+                while (attempt < 8 && parentSha == null) {
+                    delay(2000)
                     val sha = runCatching {
                         gitHubApi.getRef(owner, actualRepo, branch).refObject?.sha
                     }.getOrNull()

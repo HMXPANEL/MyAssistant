@@ -115,7 +115,7 @@ interface GitHubApi {
         @Body request: com.gitsync.data.remote.dto.CreateCommitRequestDto
     ): com.gitsync.data.remote.dto.CreateCommitResponseDto
 
-    @GET("repos/{owner}/{repo}/git/ref/heads/{branch}")
+    @GET("repos/{owner}/{repo}/git/refs/heads/{branch}")
     suspend fun getRef(
         @Path("owner") owner: String,
         @Path("repo") repo: String,
