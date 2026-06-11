@@ -587,7 +587,7 @@ class GitRepositoryImpl @Inject constructor(
                 CreateCommitRequestDto(
                     message = "Sync from GitSync\n\n${treeEntries.size} files",
                     tree = treeResp.sha,
-                    parents = if (parentSha != null) listOf(parentSha) else emptyList()
+                    parents = parentSha?.let { listOf(it) } ?: emptyList()
                 )
             )
 
