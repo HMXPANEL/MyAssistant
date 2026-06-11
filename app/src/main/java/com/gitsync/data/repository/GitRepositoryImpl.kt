@@ -424,11 +424,13 @@ class GitRepositoryImpl @Inject constructor(
             // different case — GitHub will still let us push to it via the API.
             var repoIsNew = false
             var actualRepo = repo  // may be updated if GitHub returns the canonical name
+            var actualOwner = owner  // may be updated to canonical case from GitHub response
             try {
                 val repoInfo = gitHubApi.getRepository(owner, repo)
-                // GitHub returns the canonical repo name — use it for all subsequent calls
+                // GitHub returns the canonical owner login and repo name — use both for all subsequent calls
                 actualRepo = repoInfo.name.ifBlank { repo }
-                android.util.Log.i("GitSync", "Repo exists: $owner/$actualRepo")
+                actualOwner = repoInfo.owner.login.ifBlank { owner }
+                android.util.Log.i("GitSync", "Repo exists: $actualOwner/$actualRepo")
             } catch (e: HttpException) {
                 if (e.code() == 404) {
                     try {
@@ -458,9 +460,11 @@ class GitRepositoryImpl @Inject constructor(
                 }
             }
 
+            android.util.Log.i("GitSync", "Using owner=$actualOwner repo=$actualRepo for all API calls")
+
             // Step 2: Check if repo has any existing commits (could be pre-existing empty repo)
             val existingParentSha: String? = try {
-                gitHubApi.getRef(owner, actualRepo, branch).refObject?.sha
+                gitHubApi.getRef(actualOwner, actualRepo, branch).refObject?.sha
             } catch (e: HttpException) {
                 if (e.code() == 404 || e.code() == 409) null else throw e
             } catch (_: Exception) {
@@ -478,7 +482,7 @@ class GitRepositoryImpl @Inject constructor(
                         android.util.Base64.NO_WRAP
                     )
                     gitHubApi.putFileContent(
-                        owner, actualRepo, "README.md",
+                        actualOwner, actualRepo, "README.md",
                         com.gitsync.data.remote.dto.FileContentRequestDto(
                             message = "Initial commit via GitSync",
                             content = readmeContent,
@@ -503,7 +507,7 @@ class GitRepositoryImpl @Inject constructor(
                 while (attempt < 8 && parentSha == null) {
                     delay(2000)
                     val sha = runCatching {
-                        gitHubApi.getRef(owner, actualRepo, branch).refObject?.sha
+                        gitHubApi.getRef(actualOwner, actualRepo, branch).refObject?.sha
                     }.getOrNull()
                     if (sha != null) {
                         parentSha = sha
@@ -557,7 +561,7 @@ class GitRepositoryImpl @Inject constructor(
                                     file.readBytes(), android.util.Base64.NO_WRAP
                                 )
                                 val blobResp = gitHubApi.createBlob(
-                                    owner, actualRepo,
+                                    actualOwner, actualRepo,
                                     CreateBlobRequestDto(content = base64, encoding = "base64")
                                 )
                                 synchronized(treeEntries) {
@@ -566,10 +570,10 @@ class GitRepositoryImpl @Inject constructor(
                         } catch (e: HttpException) {
                             lastBlobError = e
                             val errBody = runCatching { e.response()?.errorBody()?.string() }.getOrNull() ?: ""
-                             android.util.Log.e("GitSync", "Blob failed ${file.name}: HTTP ${e.code()} | owner=$owner repo=$actualRepo | $errBody")
+                             android.util.Log.e("GitSync", "Blob failed ${file.name}: HTTP ${e.code()} | owner=$actualOwner repo=$actualRepo | $errBody")
                          } catch (e: Exception) {
                              lastBlobError = e
-                             android.util.Log.e("GitSync", "Blob failed ${file.name}: ${e.message} | owner=$owner repo=$actualRepo")
+                             android.util.Log.e("GitSync", "Blob failed ${file.name}: ${e.message} | owner=$actualOwner repo=$actualRepo")
                         }
                         }
                     }.awaitAll()
@@ -592,7 +596,7 @@ class GitRepositoryImpl @Inject constructor(
 
             // Step 7: Create tree
             val treeResp = gitHubApi.createTree(
-                owner, actualRepo,
+                actualOwner, actualRepo,
                 CreateTreeRequestDto(
                     baseTree = parentSha, // null = new tree from scratch
                     tree = treeEntries
@@ -601,7 +605,7 @@ class GitRepositoryImpl @Inject constructor(
 
             // Step 8: Create commit
             val commitResp = gitHubApi.createCommit(
-                owner, actualRepo,
+                actualOwner, actualRepo,
                 CreateCommitRequestDto(
                     message = "Sync from GitSync\n\n${treeEntries.size} files",
                     tree = treeResp.sha,
@@ -611,14 +615,14 @@ class GitRepositoryImpl @Inject constructor(
 
             // Step 9: Update or create the branch ref
             try {
-                gitHubApi.updateRef(owner, actualRepo, branch,
+                gitHubApi.updateRef(actualOwner, actualRepo, branch,
                     UpdateRefRequestDto(sha = commitResp.sha, force = true)
                 )
             } catch (e: HttpException) {
                 if (e.code() == 422 || e.code() == 404) {
                     try {
                         gitHubApi.createRef(
-                            owner, actualRepo,
+                            actualOwner, actualRepo,
                             CreateRefRequestDto(
                                 ref = "refs/heads/$branch",
                                 sha = commitResp.sha

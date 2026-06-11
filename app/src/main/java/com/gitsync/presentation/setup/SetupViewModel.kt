@@ -71,8 +71,9 @@ class SetupViewModel @Inject constructor(
                 return@launch
             }
 
+            val canonicalUsername = validationResult.getOrNull() ?: s.username.trim()
             authRepository.saveCredentials(
-                username = s.username.trim(),
+                username = canonicalUsername,
                 token = s.token.trim(),
                 branch = s.branch.trim()
             )

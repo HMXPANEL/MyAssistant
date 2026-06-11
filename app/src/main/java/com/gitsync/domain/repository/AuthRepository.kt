@@ -1,7 +1,7 @@
 package com.gitsync.domain.repository
 
 interface AuthRepository {
-    suspend fun validateCredentials(username: String, token: String): Result<Boolean>
+    suspend fun validateCredentials(username: String, token: String): Result<String>
     fun isAuthenticated(): Boolean
     fun isSetupComplete(): Boolean
     fun getUsername(): String
