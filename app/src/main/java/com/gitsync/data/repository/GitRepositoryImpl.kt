@@ -416,36 +416,51 @@ class GitRepositoryImpl @Inject constructor(
                 return@withContext Result.failure(Exception("Invalid URL: $remoteUrl"))
             }
             val owner = urlParts[0]
-            val repo  = urlParts[1].lowercase() // GitHub repo names are case-insensitive; normalize to avoid 404s
+            val repo  = urlParts[1] // Preserve exact case — GitHub API paths are case-sensitive
 
             // Step 1: Create repo if it doesn't exist
+            // We try exact-case first, then create if truly missing.
+            // If create returns 422 "already exists", it means the repo exists under a
+            // different case — GitHub will still let us push to it via the API.
             var repoIsNew = false
+            var actualRepo = repo  // may be updated if GitHub returns the canonical name
             try {
-                gitHubApi.getRepository(owner, repo)
+                val repoInfo = gitHubApi.getRepository(owner, repo)
+                // GitHub returns the canonical repo name — use it for all subsequent calls
+                actualRepo = repoInfo.name.ifBlank { repo }
+                android.util.Log.i("GitSync", "Repo exists: $owner/$actualRepo")
             } catch (e: HttpException) {
                 if (e.code() == 404) {
                     try {
-                        gitHubApi.createRepository(
+                        val created = gitHubApi.createRepository(
                             CreateRepoRequestDto(
                                 name = repo,
                                 description = "Synced by GitSync",
                                 isPrivate = false
                             )
                         )
+                        actualRepo = created.name.ifBlank { repo }
                         repoIsNew = true
-                        delay(2000) // GitHub needs time to provision the Git DB
+                        android.util.Log.i("GitSync", "Created repo: $owner/$actualRepo")
+                        delay(2000)
                     } catch (ce: HttpException) {
-                        return@withContext Result.failure(Exception(
-                            "Could not create repo '$owner/$repo'.\n" +
-                            "Ensure your PAT has 'repo' scope.\nError: ${ce.code()}"
-                        ))
+                        if (ce.code() == 422) {
+                            // Repo already exists with different case — try to fetch canonical name
+                            android.util.Log.w("GitSync", "Repo 422: may already exist, proceeding with name: $repo")
+                            actualRepo = repo
+                        } else {
+                            return@withContext Result.failure(Exception(
+                                "Could not create repo '$owner/$repo'.\n" +
+                                "Ensure your PAT has 'repo' scope.\nError: ${ce.code()}"
+                            ))
+                        }
                     }
                 }
             }
 
             // Step 2: Check if repo has any existing commits (could be pre-existing empty repo)
             val existingParentSha: String? = try {
-                gitHubApi.getRef(owner, repo, branch).refObject?.sha
+                gitHubApi.getRef(owner, actualRepo, branch).refObject?.sha
             } catch (e: HttpException) {
                 if (e.code() == 404 || e.code() == 409) null else throw e
             } catch (_: Exception) {
@@ -459,11 +474,11 @@ class GitRepositoryImpl @Inject constructor(
             if (repoHasNoCommits) {
                 try {
                     val readmeContent = android.util.Base64.encodeToString(
-                        "# $repo\n\nSynced by GitSync".toByteArray(),
+                        "# $actualRepo\n\nSynced by GitSync".toByteArray(),
                         android.util.Base64.NO_WRAP
                     )
                     gitHubApi.putFileContent(
-                        owner, repo, "README.md",
+                        owner, actualRepo, "README.md",
                         com.gitsync.data.remote.dto.FileContentRequestDto(
                             message = "Initial commit via GitSync",
                             content = readmeContent,
@@ -486,7 +501,7 @@ class GitRepositoryImpl @Inject constructor(
                 repeat(5) { attempt ->
                     delay(1500)
                     val sha = runCatching {
-                        gitHubApi.getRef(owner, repo, branch).refObject?.sha
+                        gitHubApi.getRef(owner, actualRepo, branch).refObject?.sha
                     }.getOrNull()
                     if (sha != null) {
                         parentSha = sha
@@ -539,7 +554,7 @@ class GitRepositoryImpl @Inject constructor(
                                     file.readBytes(), android.util.Base64.NO_WRAP
                                 )
                                 val blobResp = gitHubApi.createBlob(
-                                    owner, repo,
+                                    owner, actualRepo,
                                     CreateBlobRequestDto(content = base64, encoding = "base64")
                                 )
                                 synchronized(treeEntries) {
@@ -548,10 +563,10 @@ class GitRepositoryImpl @Inject constructor(
                         } catch (e: HttpException) {
                             lastBlobError = e
                             val errBody = runCatching { e.response()?.errorBody()?.string() }.getOrNull() ?: ""
-                            android.util.Log.e("GitSync", "Blob failed ${file.name}: HTTP ${e.code()} | owner=$owner repo=$repo | $errBody")
-                        } catch (e: Exception) {
-                            lastBlobError = e
-                            android.util.Log.e("GitSync", "Blob failed ${file.name}: ${e.message} | owner=$owner repo=$repo")
+                             android.util.Log.e("GitSync", "Blob failed ${file.name}: HTTP ${e.code()} | owner=$owner repo=$actualRepo | $errBody")
+                         } catch (e: Exception) {
+                             lastBlobError = e
+                             android.util.Log.e("GitSync", "Blob failed ${file.name}: ${e.message} | owner=$owner repo=$actualRepo")
                         }
                         }
                     }.awaitAll()
@@ -574,7 +589,7 @@ class GitRepositoryImpl @Inject constructor(
 
             // Step 7: Create tree
             val treeResp = gitHubApi.createTree(
-                owner, repo,
+                owner, actualRepo,
                 CreateTreeRequestDto(
                     baseTree = parentSha, // null = new tree from scratch
                     tree = treeEntries
@@ -583,7 +598,7 @@ class GitRepositoryImpl @Inject constructor(
 
             // Step 8: Create commit
             val commitResp = gitHubApi.createCommit(
-                owner, repo,
+                owner, actualRepo,
                 CreateCommitRequestDto(
                     message = "Sync from GitSync\n\n${treeEntries.size} files",
                     tree = treeResp.sha,
@@ -593,14 +608,14 @@ class GitRepositoryImpl @Inject constructor(
 
             // Step 9: Update or create the branch ref
             try {
-                gitHubApi.updateRef(owner, repo, branch,
+                gitHubApi.updateRef(owner, actualRepo, branch,
                     UpdateRefRequestDto(sha = commitResp.sha, force = true)
                 )
             } catch (e: HttpException) {
                 if (e.code() == 422 || e.code() == 404) {
                     try {
                         gitHubApi.createRef(
-                            owner, repo,
+                            owner, actualRepo,
                             CreateRefRequestDto(
                                 ref = "refs/heads/$branch",
                                 sha = commitResp.sha
@@ -623,7 +638,7 @@ class GitRepositoryImpl @Inject constructor(
             when (code) {
                 401 -> Result.failure(Exception("GitHub auth failed (401). Check your Personal Access Token in Settings."))
                 403 -> Result.failure(Exception("Access forbidden (403). Ensure PAT has 'repo' scope."))
-                404 -> Result.failure(Exception("GitHub API error (404): A resource was not found. This may be a repo name case mismatch. Try using all-lowercase repo name.\nDetails: $body"))
+                404 -> Result.failure(Exception("GitHub API error (404): A resource was not found. Check owner/repo name.\nDetails: $body"))
                 409 -> Result.failure(Exception("Repository not ready (409). Wait a moment and try again."))
                 422 -> Result.failure(Exception("GitHub rejected request (422): $body"))
                 else -> Result.failure(Exception("GitHub error $code: $body"))
