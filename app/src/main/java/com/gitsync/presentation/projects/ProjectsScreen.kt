@@ -160,7 +160,7 @@ fun ProjectsScreen(
     if (state.error != null) {
         ErrorDialog(
             message = state.error!!,
-            onDismiss = { }
+            onDismiss = viewModel::dismissError
         )
     }
 }

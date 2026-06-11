@@ -496,9 +496,11 @@ class GitRepositoryImpl @Inject constructor(
 
             // Step 4: Get HEAD SHA — retry up to 5 times because GitHub needs
             // a moment to update the ref after the initial commit.
+            // Using a while loop (not repeat) so we can break immediately when SHA is found.
             var parentSha: String? = existingParentSha
             if (parentSha == null) {
-                repeat(5) { attempt ->
+                var attempt = 0
+                while (attempt < 5 && parentSha == null) {
                     delay(1500)
                     val sha = runCatching {
                         gitHubApi.getRef(owner, actualRepo, branch).refObject?.sha
@@ -506,9 +508,10 @@ class GitRepositoryImpl @Inject constructor(
                     if (sha != null) {
                         parentSha = sha
                         android.util.Log.i("GitSync", "Got parentSha on attempt ${attempt + 1}: $sha")
-                        return@repeat
+                    } else {
+                        android.util.Log.w("GitSync", "getRef attempt ${attempt + 1} returned null, retrying...")
                     }
-                    android.util.Log.w("GitSync", "getRef attempt ${attempt + 1} returned null, retrying...")
+                    attempt++
                 }
             }
 

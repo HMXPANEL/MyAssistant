@@ -117,6 +117,10 @@ class ProjectsViewModel @Inject constructor(
         _state.value = _state.value.copy(branch = value, error = null)
     }
 
+    fun dismissError() {
+        _state.value = _state.value.copy(error = null, isAdding = false, setupStep = "")
+    }
+
     fun addProject() {
         val s = _state.value
 
