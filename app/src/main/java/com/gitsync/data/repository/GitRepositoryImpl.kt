@@ -454,17 +454,15 @@ class GitRepositoryImpl @Inject constructor(
 
             val repoHasNoCommits = existingParentSha == null
 
-            // Step 3: If repo has no commits at all (new or pre-existing empty),
-            // we MUST create an initial commit via Contents API first.
-            // The Git Tree API (createBlob/createTree) returns 409 on repos with no commits.
-            val initialCommitSha: String? = if (repoHasNoCommits) {
+            // Step 3: If repo has no commits, create initial README via Contents API.
+            // createBlob/createTree both return 409/404 on repos with zero commits.
+            if (repoHasNoCommits) {
                 try {
-                    // Use Contents API to create README - this initializes the Git DB
                     val readmeContent = android.util.Base64.encodeToString(
                         "# $repo\n\nSynced by GitSync".toByteArray(),
                         android.util.Base64.NO_WRAP
                     )
-                    val result = gitHubApi.putFileContent(
+                    gitHubApi.putFileContent(
                         owner, repo, "README.md",
                         com.gitsync.data.remote.dto.FileContentRequestDto(
                             message = "Initial commit via GitSync",
@@ -472,25 +470,37 @@ class GitRepositoryImpl @Inject constructor(
                             sha = null
                         )
                     )
-                    delay(1000) // Give GitHub time to update the ref
-                    result.commit?.sha
+                    android.util.Log.i("GitSync", "Initial README committed successfully")
                 } catch (e: Exception) {
                     android.util.Log.w("GitSync", "Initial README commit failed: ${e.message}")
-                    null
+                    return@withContext Result.failure(Exception(
+                        "Could not initialize repository. Ensure your PAT has 'repo' scope.\nError: ${e.message}"
+                    ))
                 }
-            } else null
+            }
 
-            // Step 4: Get the current HEAD sha (after potential initial commit)
-            val parentSha: String? = initialCommitSha ?: existingParentSha ?: runCatching {
-                gitHubApi.getRef(owner, repo, branch).refObject?.sha
-            }.getOrNull()
+            // Step 4: Get HEAD SHA — retry up to 5 times because GitHub needs
+            // a moment to update the ref after the initial commit.
+            var parentSha: String? = existingParentSha
+            if (parentSha == null) {
+                repeat(5) { attempt ->
+                    delay(1500)
+                    val sha = runCatching {
+                        gitHubApi.getRef(owner, repo, branch).refObject?.sha
+                    }.getOrNull()
+                    if (sha != null) {
+                        parentSha = sha
+                        android.util.Log.i("GitSync", "Got parentSha on attempt ${attempt + 1}: $sha")
+                        return@repeat
+                    }
+                    android.util.Log.w("GitSync", "getRef attempt ${attempt + 1} returned null, retrying...")
+                }
+            }
 
-            // If repo has no commits and we failed to create initial commit, we cannot proceed
-            // because Git Tree API (createBlob/createTree) returns 409 on repos with no commits
-            if (repoHasNoCommits && initialCommitSha == null && parentSha == null) {
+            if (parentSha == null) {
                 return@withContext Result.failure(Exception(
-                    "Repository is empty and failed to initialize. " +
-                    "Please delete the GitHub repo and try again, or ensure your PAT has 'repo' scope."
+                    "Repository initialized but could not read commit SHA. " +
+                    "Please try pushing again — the repository is ready."
                 ))
             }
 
@@ -581,36 +591,26 @@ class GitRepositoryImpl @Inject constructor(
                 )
             )
 
-            // Step 9: Create or update the branch ref
-            // New repo (no prior ref) = POST to CREATE. Existing repo = PATCH to UPDATE.
+            // Step 9: Update or create the branch ref
             try {
-                if (repoHasNoCommits && initialCommitSha == null) {
-                    // Truly brand new ref — create it
-                    gitHubApi.createRef(
-                        owner, repo,
-                        CreateRefRequestDto(
-                            ref = "refs/heads/$branch",
-                            sha = commitResp.sha
-                        )
-                    )
-                } else {
-                    // Ref exists — update it
-                    gitHubApi.updateRef(owner, repo, branch,
-                        UpdateRefRequestDto(sha = commitResp.sha, force = true)
-                    )
-                }
+                gitHubApi.updateRef(owner, repo, branch,
+                    UpdateRefRequestDto(sha = commitResp.sha, force = true)
+                )
             } catch (e: HttpException) {
-                // 422 = ref already exists (race condition) — try update instead
-                if (e.code() == 422) {
+                if (e.code() == 422 || e.code() == 404) {
                     try {
-                        gitHubApi.updateRef(owner, repo, branch,
-                            UpdateRefRequestDto(sha = commitResp.sha, force = true)
+                        gitHubApi.createRef(
+                            owner, repo,
+                            CreateRefRequestDto(
+                                ref = "refs/heads/$branch",
+                                sha = commitResp.sha
+                            )
                         )
-                    } catch (ue: Exception) {
-                        android.util.Log.w("GitSync", "updateRef fallback failed: ${ue.message}")
+                    } catch (ce: Exception) {
+                        android.util.Log.w("GitSync", "createRef also failed: ${ce.message}")
                     }
                 } else {
-                    android.util.Log.w("GitSync", "ref operation failed: ${e.code()} ${e.message}")
+                    android.util.Log.w("GitSync", "updateRef failed: ${e.code()} ${e.message}")
                 }
             }
 
